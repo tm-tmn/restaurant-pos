@@ -96,10 +96,84 @@ export interface DailyReport {
   avgOrderSatang: number;
   voidedOrders: number;
   voidedItems: number;
+  cogsSatang: number;
+  grossProfitSatang: number;
+  wasteSatang: number;
   byMethod: { method: PaymentMethod; amountSatang: number; count: number }[];
   topProducts: { name: string; qty: number; salesSatang: number }[];
   hourly: { hour: number; orders: number; salesSatang: number }[];
 }
+// ---------- Phase 2: Inventory ----------
+export type BaseUnit = 'g' | 'ml' | 'pcs';
+export type MovementType = 'receive' | 'issue' | 'waste' | 'transfer_out' | 'transfer_in' | 'sale' | 'adjust';
+
+export interface Ingredient {
+  id: string;
+  name: string;
+  unit: BaseUnit;
+  sku: string | null;
+  reorderLevel: number;
+  active: boolean;
+}
+export interface StockRow {
+  ingredientId: string;
+  name: string;
+  unit: BaseUnit;
+  sku: string | null;
+  reorderLevel: number;
+  qty: number;
+  valueSatang: number;
+  avgCostSatang: number;
+  low: boolean;
+  negative: boolean;
+  lastInAt: string | null;
+}
+export interface Movement {
+  id: string;
+  ingredientId: string;
+  ingredient: { name: string; unit: BaseUnit };
+  type: MovementType;
+  qtyDelta: number;
+  valueDeltaSatang: number;
+  balanceQty: number;
+  reason: string | null;
+  refType: string | null;
+  supplier: string | null;
+  expiryDate: string | null;
+  createdAt: string;
+}
+export interface ExpiringLot {
+  id: string;
+  ingredientId: string;
+  name: string;
+  unit: BaseUnit;
+  receivedQty: number;
+  currentQty: number;
+  expiryDate: string;
+  receivedAt: string;
+}
+export interface CostingRow {
+  productId: string;
+  name: string;
+  priceSatang: number;
+  hasRecipe: boolean;
+  costSatang: number;
+  marginSatang: number;
+  marginPct: number;
+  missingCost: string[];
+}
+export interface Recipe {
+  productId: string;
+  name: string;
+  priceSatang: number;
+  items: { ingredientId: string; name: string; unit: BaseUnit; qty: number }[];
+}
+export interface BranchLite {
+  id: string;
+  code: string;
+  name: string;
+}
+
 export interface StaffUser {
   id: string;
   username: string;

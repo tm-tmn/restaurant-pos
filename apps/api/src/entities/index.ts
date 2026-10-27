@@ -178,6 +178,87 @@ export class DailyCounter {
   @Column({ type: 'int', default: 0 }) n: number;
 }
 
+// =================== Phase 2: Inventory & BOM ===================
+
+/** หน่วยฐานที่ใช้เก็บปริมาณเป็นจำนวนเต็ม */
+export type BaseUnit = 'g' | 'ml' | 'pcs';
+export type MovementType = 'receive' | 'issue' | 'waste' | 'transfer_out' | 'transfer_in' | 'sale' | 'adjust';
+
+@Entity('ingredients')
+export class Ingredient {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ unique: true }) name: string;
+  @Column({ type: 'varchar', length: 8 }) unit: BaseUnit;
+  @Index({ unique: true, where: '"sku" IS NOT NULL' })
+  @Column({ type: 'varchar', nullable: true })
+  sku: string | null;
+  /** แจ้งเตือนเมื่อคงเหลือต่ำกว่าค่านี้ (หน่วยฐาน) */
+  @Column({ type: 'int', default: 0 }) reorderLevel: number;
+  @Column({ default: true }) active: boolean;
+  @CreateDateColumn() createdAt: Date;
+}
+
+/** สูตรอาหาร (Bill of Materials): เมนู 1 จานใช้วัตถุดิบเท่าไร */
+@Entity('recipe_items')
+@Unique(['productId', 'ingredientId'])
+export class RecipeItem {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Index() @Column('uuid') productId: string;
+  @Column('uuid') ingredientId: string;
+  @ManyToOne(() => Ingredient) @JoinColumn({ name: 'ingredientId' }) ingredient: Ingredient;
+  /** ปริมาณต่อ 1 จาน (หน่วยฐาน) */
+  @Column({ type: 'int' }) qty: number;
+}
+
+/** คงเหลือต่อสาขา: ปริมาณ + มูลค่า (ต้นทุนเฉลี่ย = value/qty) */
+@Entity('stock_levels')
+export class StockLevel {
+  @PrimaryColumn('uuid') branchId: string;
+  @PrimaryColumn('uuid') ingredientId: string;
+  @ManyToOne(() => Ingredient) @JoinColumn({ name: 'ingredientId' }) ingredient: Ingredient;
+  @Column({ type: 'int', default: 0 }) qty: number;
+  @Column({ type: 'bigint', default: 0, transformer: { to: (v: number) => v, from: (v: string) => Number(v) } })
+  valueSatang: number;
+  @UpdateDateColumn() updatedAt: Date;
+}
+
+/** สมุดบัญชีสต็อก (ledger) — ทุกการเปลี่ยนแปลงคงเหลือต้องมีแถวที่นี่ ไม่แก้ไข/ลบ */
+@Entity('stock_movements')
+@Index(['branchId', 'createdAt'])
+@Index(['branchId', 'ingredientId', 'createdAt'])
+@Index(['refType', 'refId'])
+export class StockMovement {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column('uuid') branchId: string;
+  @Column('uuid') ingredientId: string;
+  @ManyToOne(() => Ingredient) @JoinColumn({ name: 'ingredientId' }) ingredient: Ingredient;
+  @Column({ type: 'varchar', length: 16 }) type: MovementType;
+  @Column({ type: 'int' }) qtyDelta: number;
+  @Column({ type: 'int' }) valueDeltaSatang: number;
+  /** คงเหลือหลังรายการนี้ — ใช้ตรวจย้อนหลังได้โดยไม่ต้องรวมใหม่ */
+  @Column({ type: 'int' }) balanceQty: number;
+  @Column({ type: 'varchar', nullable: true }) reason: string | null;
+  @Column({ type: 'varchar', length: 16, nullable: true }) refType: 'order' | 'transfer' | 'count' | null;
+  @Column({ type: 'uuid', nullable: true }) refId: string | null;
+  /** วันหมดอายุของล็อตที่รับเข้า (ถ้ามี) */
+  @Column({ type: 'date', nullable: true }) expiryDate: string | null;
+  @Column({ type: 'varchar', nullable: true }) supplier: string | null;
+  @Column({ type: 'uuid', nullable: true }) userId: string | null;
+  @CreateDateColumn() createdAt: Date;
+}
+
+@Entity('stock_counts')
+export class StockCount {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column('uuid') branchId: string;
+  @Column('uuid') userId: string;
+  @Column({ type: 'varchar', nullable: true }) note: string | null;
+  @Column({ type: 'int' }) linesCounted: number;
+  @Column({ type: 'int' }) linesAdjusted: number;
+  @Column({ type: 'int' }) valueDeltaSatang: number;
+  @CreateDateColumn() createdAt: Date;
+}
+
 export const ALL_ENTITIES = [
   Branch,
   User,
@@ -190,4 +271,9 @@ export const ALL_ENTITIES = [
   Payment,
   AuditLog,
   DailyCounter,
+  Ingredient,
+  RecipeItem,
+  StockLevel,
+  StockMovement,
+  StockCount,
 ];

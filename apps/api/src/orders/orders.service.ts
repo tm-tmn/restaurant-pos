@@ -4,6 +4,7 @@ import { DataSource, EntityManager, In, QueryFailedError } from 'typeorm';
 import { AuthUser } from '../auth/auth.types';
 import { calcTotals, settlePayments } from '../common/money';
 import { AuditLog, Branch, DiningTable, Order, OrderItem, Payment, Product } from '../entities';
+import { InventoryService } from '../inventory/inventory.service';
 import { ShiftsService } from '../shifts/shifts.service';
 import { AddItemsDto, CreateOrderDto, ItemInputDto, PayOrderDto, SyncOrderDto } from './orders.dto';
 
@@ -24,6 +25,7 @@ export class OrdersService {
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
     private readonly shifts: ShiftsService,
+    private readonly inventory: InventoryService,
   ) {}
 
   // ---------- helpers ----------
@@ -206,6 +208,8 @@ export class OrdersService {
       order.paidAt = now;
       order.shiftId = (await this.shifts.findForTime(em, u.branchId, now))?.id ?? null;
       await em.save(order);
+      // หักวัตถุดิบตามสูตร ในทรานแซกชันเดียวกับการชำระ (สำเร็จทั้งคู่หรือไม่เกิดทั้งคู่)
+      await this.inventory.deductForSale(em, u.branchId, order.id, items);
       if (totals.discount > 0) {
         await this.audit(em, u, 'order.discount', 'order', order.id, { orderNo: order.orderNo, discountSatang: totals.discount });
       }
@@ -293,6 +297,12 @@ export class OrdersService {
         ),
       );
       await em.save(settled.map((p) => em.create(Payment, { ...p, reference: p.reference ?? null, orderId: order.id })));
+      await this.inventory.deductForSale(
+        em,
+        u.branchId,
+        order.id,
+        dto.items.map((i) => ({ productId: i.productId && priceById.has(i.productId) ? i.productId : null, qty: i.qty })),
+      );
 
       const mismatches = dto.items.filter((i) => i.productId && priceById.has(i.productId) && priceById.get(i.productId) !== i.unitPriceSatang);
       if (mismatches.length) {

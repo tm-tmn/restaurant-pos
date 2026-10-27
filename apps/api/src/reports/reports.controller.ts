@@ -66,7 +66,23 @@ export class ReportsController {
       p,
     );
 
+    // ต้นทุนขาย (COGS) จากการหักวัตถุดิบตามสูตรของบิลที่ชำระในวันนั้น
+    const [{ cogs }] = await this.ds.query(
+      `SELECT COALESCE(-SUM(m."valueDeltaSatang"),0)::bigint AS cogs
+         FROM stock_movements m JOIN orders o ON o.id = m."refId"
+        WHERE m."refType" = 'order' AND m.type = 'sale'
+          AND o."branchId" = $1 AND o.status = 'paid' AND o."paidAt" >= $2 AND o."paidAt" < $3`,
+      p,
+    );
+    const [{ waste }] = await this.ds.query(
+      `SELECT COALESCE(-SUM("valueDeltaSatang"),0)::bigint AS waste
+         FROM stock_movements WHERE "branchId" = $1 AND type = 'waste' AND "createdAt" >= $2 AND "createdAt" < $3`,
+      p,
+    );
+    const cogsSatang = Number(cogs);
+    const stock = { cogsSatang, grossProfitSatang: totals.salesSatang - cogsSatang, wasteSatang: Number(waste) };
+
     const avg = totals.orders > 0 ? Math.round(totals.salesSatang / totals.orders) : 0;
-    return { date: day, ...totals, avgOrderSatang: avg, ...voids, byMethod, topProducts, hourly };
+    return { date: day, ...totals, avgOrderSatang: avg, ...voids, ...stock, byMethod, topProducts, hourly };
   }
 }

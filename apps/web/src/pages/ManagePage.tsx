@@ -371,7 +371,7 @@ function StaffTab() {
 
 // ---------------- ตั้งค่าร้าน ----------------
 function StoreTab() {
-  const { branch, setBranch } = useAuth();
+  const { branch, setBranch, user } = useAuth();
   const [name, setName] = useState(branch?.name ?? '');
   const [pp, setPp] = useState(branch?.promptpayId ?? '');
   const { busy, save } = useSave();
@@ -393,6 +393,45 @@ function StoreTab() {
       >
         บันทึก
       </Button>
+      {user?.role === 'owner' && <BranchesSection />}
     </Card>
+  );
+}
+
+function BranchesSection() {
+  const qc = useQueryClient();
+  const branches = useQuery({ queryKey: ['branches'], queryFn: () => api<{ id: string; code: string; name: string }[]>('/branches') });
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const { busy, save } = useSave();
+  return (
+    <div className="mt-4 border-t border-stone-200 pt-4">
+      <h3 className="mb-2 font-semibold">สาขาทั้งหมด</h3>
+      <ul className="mb-3 space-y-1 text-sm">
+        {branches.data?.map((b) => (
+          <li key={b.id}>
+            <span className="font-mono text-stone-500">{b.code}</span> · {b.name}
+          </li>
+        ))}
+      </ul>
+      <form
+        className="flex flex-wrap gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (await save(() => api('/branches', { body: { code: code.trim().toUpperCase(), name: name.trim() } }), 'เพิ่มสาขาแล้ว')) {
+            setCode('');
+            setName('');
+            qc.invalidateQueries({ queryKey: ['branches'] });
+          }
+        }}
+      >
+        <Input className="w-28" placeholder="รหัส เช่น B2" value={code} onChange={(e) => setCode(e.target.value)} />
+        <Input className="min-w-40 flex-1" placeholder="ชื่อสาขา" value={name} onChange={(e) => setName(e.target.value)} />
+        <Button type="submit" variant="outline" disabled={busy || !code.trim() || !name.trim()}>
+          เพิ่มสาขา
+        </Button>
+      </form>
+      <p className="mt-2 text-xs text-stone-500">ใช้เป็นปลายทางการโอนสต็อก · การจัดการหลายสาขาเต็มรูปแบบอยู่ใน Phase 4</p>
+    </div>
   );
 }

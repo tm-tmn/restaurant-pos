@@ -1,4 +1,4 @@
-import { BarChart3, Clock, CloudOff, LayoutGrid, LogOut, RefreshCw, Settings, ShoppingCart, type LucideIcon } from 'lucide-react';
+import { BarChart3, Clock, CloudOff, LayoutGrid, LogOut, Package, RefreshCw, Settings, ShoppingCart, type LucideIcon } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useOnline } from '../hooks/useOnline';
 import { flushQueue, useSync } from '../lib/offline';
@@ -15,6 +15,7 @@ const NAV: NavItem[] = [
   { to: '/', label: 'ขาย', icon: ShoppingCart },
   { to: '/tables', label: 'โต๊ะ', icon: LayoutGrid },
   { to: '/shift', label: 'กะ', icon: Clock },
+  { to: '/inventory', label: 'คลัง', icon: Package, manager: true },
   { to: '/reports', label: 'รายงาน', icon: BarChart3, manager: true },
   { to: '/manage', label: 'จัดการ', icon: Settings, manager: true },
 ];

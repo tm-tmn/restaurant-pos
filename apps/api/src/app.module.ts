@@ -10,6 +10,8 @@ import { Public } from './auth/auth.types';
 import { BranchesController } from './branches/branches.controller';
 import { CatalogController } from './catalog/catalog.controller';
 import { ALL_ENTITIES } from './entities';
+import { InventoryController } from './inventory/inventory.controller';
+import { InventoryService } from './inventory/inventory.service';
 import { OrdersController, SyncController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
 import { ReportsController } from './reports/reports.controller';
@@ -64,7 +66,8 @@ class HealthController {
     OrdersController,
     SyncController,
     ReportsController,
+    InventoryController,
   ],
-  providers: [AuthService, ShiftsService, OrdersService, { provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [AuthService, ShiftsService, InventoryService, OrdersService, { provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule {}

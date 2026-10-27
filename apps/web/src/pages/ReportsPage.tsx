@@ -44,8 +44,19 @@ function Body({ d }: { d: DailyReport }) {
         <Stat label="ยอดขายสุทธิ" value={baht(d.salesSatang)} big />
         <Stat label="จำนวนบิล" value={d.orders.toLocaleString('th-TH')} />
         <Stat label="เฉลี่ยต่อบิล" value={baht(d.avgOrderSatang)} />
-        <Stat label="ส่วนลด / ยกเลิก" value={`${baht(d.discountSatang)} · ${d.voidedOrders + d.voidedItems} ครั้ง`} />
+        <Stat label="ยกเลิกบิล / รายการ" value={`${d.voidedOrders} / ${d.voidedItems} ครั้ง`} />
       </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="ต้นทุนขาย (วัตถุดิบตามสูตร)" value={baht(d.cogsSatang)} />
+        <Stat
+          label="กำไรขั้นต้น"
+          value={`${baht(d.grossProfitSatang)}${d.salesSatang > 0 ? ` · ${Math.round((d.grossProfitSatang / d.salesSatang) * 100)}%` : ''}`}
+        />
+        <Stat label="มูลค่าของเสีย" value={baht(d.wasteSatang)} />
+        <Stat label="ส่วนลดรวม" value={baht(d.discountSatang)} />
+      </div>
+      <p className="-mt-2 text-xs text-stone-500">ต้นทุนขายนับเฉพาะเมนูที่มีสูตร — เมนูที่ยังไม่มีสูตรคิดต้นทุนเป็น 0</p>
 
       <Card className="p-4">
         <h2 className="mb-1 font-semibold">ยอดขายรายชั่วโมง</h2>

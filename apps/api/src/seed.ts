@@ -7,7 +7,7 @@ import 'reflect-metadata';
 import * as bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
-import { ALL_ENTITIES, Branch, Category, DiningTable, Product, User } from './entities';
+import { ALL_ENTITIES, BaseUnit, Branch, Category, DiningTable, Ingredient, Product, RecipeItem, User } from './entities';
 
 config();
 
@@ -65,6 +65,37 @@ async function main() {
       );
     }
   }
+  // ---- Phase 2: วัตถุดิบ + สูตรตัวอย่าง (ยังไม่มีสต็อก — ให้รับเข้าผ่านหน้าคลังสินค้า) ----
+  const ingRepo = ds.getRepository(Ingredient);
+  if ((await ingRepo.count()) === 0) {
+    const defs: [string, BaseUnit, number][] = [
+      ['ข้าวสาร', 'g', 5000],
+      ['หมูสับ', 'g', 2000],
+      ['ไข่ไก่', 'pcs', 30],
+      ['ใบกะเพรา', 'g', 300],
+      ['กุ้ง', 'g', 1000],
+      ['เส้นจันทน์', 'g', 1000],
+      ['ชาไทย (ผง)', 'g', 500],
+      ['นมข้นหวาน', 'ml', 1000],
+      ['น้ำดื่ม (ขวด)', 'pcs', 24],
+    ];
+    const ing = new Map<string, string>();
+    for (const [name, unit, reorderLevel] of defs) ing.set(name, (await ingRepo.save({ name, unit, reorderLevel })).id);
+    const recipes: Record<string, [string, number][]> = {
+      ข้าวกะเพราหมูสับไข่ดาว: [['ข้าวสาร', 120], ['หมูสับ', 100], ['ไข่ไก่', 1], ['ใบกะเพรา', 10]],
+      ข้าวผัดกุ้ง: [['ข้าวสาร', 150], ['กุ้ง', 80], ['ไข่ไก่', 1]],
+      ผัดไทยกุ้งสด: [['เส้นจันทน์', 120], ['กุ้ง', 80], ['ไข่ไก่', 1]],
+      ชาไทยเย็น: [['ชาไทย (ผง)', 15], ['นมข้นหวาน', 30]],
+      น้ำเปล่า: [['น้ำดื่ม (ขวด)', 1]],
+    };
+    for (const [pname, lines] of Object.entries(recipes)) {
+      const p = await ds.getRepository(Product).findOneBy({ name: pname });
+      if (!p) continue;
+      await ds.getRepository(RecipeItem).save(lines.map(([iname, qty]) => ({ productId: p.id, ingredientId: ing.get(iname)!, qty })));
+    }
+    console.log('สร้างวัตถุดิบและสูตรตัวอย่างแล้ว');
+  }
+
   await ds.destroy();
   console.log('seed เสร็จแล้ว');
 }

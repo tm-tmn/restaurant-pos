@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Toast } from './components/Toast';
 import { startAutoSync } from './lib/offline';
+import { InventoryPage } from './pages/inventory/InventoryPage';
 import { LoginPage } from './pages/LoginPage';
 import { ManagePage } from './pages/ManagePage';
 import { OrderPage } from './pages/OrderPage';
@@ -41,6 +42,7 @@ export function App() {
           <Route path="shift" element={<ShiftPage />} />
           <Route path="sync" element={<SyncPage />} />
           <Route path="reports" element={<RequireManager><ReportsPage /></RequireManager>} />
+          <Route path="inventory" element={<RequireManager><InventoryPage /></RequireManager>} />
           <Route path="manage" element={<RequireManager><ManagePage /></RequireManager>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
