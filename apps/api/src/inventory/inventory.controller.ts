@@ -45,7 +45,7 @@ class QtyItem {
 }
 class ReceiveItem extends QtyItem {
   /** ราคาที่จ่ายจริงทั้งรายการ (สตางค์) */
-  @IsInt() @Min(0) @Max(100_000_000_00) totalCostSatang: number;
+  @IsInt() @Min(0) @Max(1_000_000_000) totalCostSatang: number;
   @IsOptional() @IsDateString() expiryDate?: string;
 }
 class ReceiveDto {

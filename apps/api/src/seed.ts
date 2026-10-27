@@ -7,14 +7,14 @@ import 'reflect-metadata';
 import * as bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
-import { ALL_ENTITIES, BaseUnit, Branch, Category, DiningTable, Ingredient, Product, RecipeItem, User } from './entities';
+import { dataSourceOptions } from './data-source';
+import { BaseUnit, Branch, Category, DiningTable, Ingredient, Product, RecipeItem, User } from './entities';
 
 config();
 
 async function main() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('ไม่พบ DATABASE_URL');
-  const ds = await new DataSource({ type: 'postgres', url, entities: ALL_ENTITIES, synchronize: true }).initialize();
+  // ใช้การตั้งค่าเดียวกับแอป: รัน migration ก่อน (หรือ synchronize เมื่อ DB_SYNC=true ตอนพัฒนา)
+  const ds = await new DataSource(dataSourceOptions()).initialize();
 
   let branch = await ds.getRepository(Branch).findOneBy({ code: 'MAIN' });
   if (!branch) {

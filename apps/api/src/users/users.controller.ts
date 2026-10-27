@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { IsBoolean, IsIn, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { Repository } from 'typeorm';
 import { CurrentUser } from '../auth/auth.guard';
 import { AuthUser, Roles } from '../auth/auth.types';
@@ -9,13 +9,13 @@ import { Role, User } from '../entities';
 
 class CreateUserDto {
   @IsString() @Matches(/^[a-zA-Z0-9._-]{3,32}$/, { message: 'username ใช้ได้เฉพาะ a-z 0-9 . _ - ยาว 3-32 ตัว' }) username: string;
-  @IsString() @MinLength(8, { message: 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร' }) password: string;
-  @IsString() @MinLength(1) displayName: string;
+  @IsString() @MinLength(8, { message: 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร' }) @MaxLength(128) password: string;
+  @IsString() @MinLength(1) @MaxLength(50) displayName: string;
   @IsIn(['manager', 'cashier']) role: Role;
 }
 class UpdateUserDto {
-  @IsOptional() @IsString() @MinLength(1) displayName?: string;
-  @IsOptional() @IsString() @MinLength(8) password?: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(50) displayName?: string;
+  @IsOptional() @IsString() @MinLength(8, { message: 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร' }) @MaxLength(128) password?: string;
   @IsOptional() @IsBoolean() active?: boolean;
 }
 
@@ -54,8 +54,15 @@ export class UsersController {
     if (target.role === 'manager' && u.role !== 'owner' && target.id !== u.id) throw new ForbiddenException();
     if (dto.active === false && target.id === u.id) throw new BadRequestException('ปิดใช้งานบัญชีตัวเองไม่ได้');
     if (dto.displayName !== undefined) target.displayName = dto.displayName;
-    if (dto.active !== undefined) target.active = dto.active;
-    if (dto.password) target.passwordHash = await bcrypt.hash(dto.password, 10);
+    // เปลี่ยนรหัสผ่านหรือปิดใช้งาน → เพิ่ม tokenVersion เพื่อตัดเซสชันเดิมทุกเครื่องทันที
+    if (dto.active !== undefined && dto.active !== target.active) {
+      target.active = dto.active;
+      if (!dto.active) target.tokenVersion++;
+    }
+    if (dto.password) {
+      target.passwordHash = await bcrypt.hash(dto.password, 10);
+      target.tokenVersion++;
+    }
     const saved = await this.users.save(target);
     return { id: saved.id, username: saved.username, displayName: saved.displayName, role: saved.role, active: saved.active };
   }

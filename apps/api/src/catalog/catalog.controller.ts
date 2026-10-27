@@ -1,36 +1,38 @@
 import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
 import { Repository } from 'typeorm';
 import { Roles } from '../auth/auth.types';
+import { MAX_UNIT_PRICE_SATANG } from '../common/money';
 import { Category, Product } from '../entities';
 
 class CategoryDto {
-  @IsString() @MinLength(1) name: string;
-  @IsOptional() @IsInt() sortOrder?: number;
+  @IsString() @MinLength(1) @MaxLength(50) name: string;
+  @IsOptional() @IsInt() @Min(0) @Max(10000) sortOrder?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }
 class UpdateCategoryDto {
-  @IsOptional() @IsString() @MinLength(1) name?: string;
-  @IsOptional() @IsInt() sortOrder?: number;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(50) name?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(10000) sortOrder?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }
 class ProductDto {
-  @IsString() @MinLength(1) name: string;
+  @IsString() @MinLength(1) @MaxLength(100) name: string;
   @IsOptional() @IsUUID() categoryId?: string;
-  @IsOptional() @IsString() sku?: string;
-  @IsOptional() @IsString() barcode?: string;
-  @IsInt() @Min(0) priceSatang: number;
-  @IsOptional() @IsInt() sortOrder?: number;
+  @IsOptional() @IsString() @MaxLength(50) sku?: string;
+  @IsOptional() @IsString() @MaxLength(50) barcode?: string;
+  @IsInt() @Min(0) @Max(MAX_UNIT_PRICE_SATANG) priceSatang: number;
+  @IsOptional() @IsInt() @Min(0) @Max(10000) sortOrder?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }
 class UpdateProductDto {
-  @IsOptional() @IsString() @MinLength(1) name?: string;
-  @IsOptional() @IsUUID() categoryId?: string;
-  @IsOptional() @IsString() sku?: string;
-  @IsOptional() @IsString() barcode?: string;
-  @IsOptional() @IsInt() @Min(0) priceSatang?: number;
-  @IsOptional() @IsInt() sortOrder?: number;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) name?: string;
+  /** ส่ง null เพื่อเอาออกจากหมวดหมู่ */
+  @ValidateIf((_, v) => v !== null && v !== undefined) @IsUUID() categoryId?: string | null;
+  @IsOptional() @IsString() @MaxLength(50) sku?: string;
+  @IsOptional() @IsString() @MaxLength(50) barcode?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_UNIT_PRICE_SATANG) priceSatang?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(10000) sortOrder?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }
 

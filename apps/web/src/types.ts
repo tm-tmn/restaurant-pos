@@ -65,6 +65,7 @@ export interface Order {
   subtotalSatang: number;
   discountSatang: number;
   totalSatang: number;
+  paidAt: string | null;
   items: OrderItem[];
   payments: PaymentRow[];
 }

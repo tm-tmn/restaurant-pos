@@ -78,14 +78,36 @@ npm run dev:web                       # http://localhost:5173
 ## ทดสอบ
 
 ```bash
-npm test                              # unit test: ตรรกะเงิน + ต้นทุนสต็อก (api), PromptPay + หน่วย (web)
+npm test                              # unit test: เงิน, ต้นทุนสต็อก, กันเดารหัส (api) · PromptPay, หน่วย, คิวออฟไลน์ (web)
 # smoke test API (ต้องรัน API + seed แล้ว; สร้างข้อมูลทดสอบลง DB — ห้ามใช้กับ production)
 API_URL=http://localhost:3000/api node apps/api/scripts/smoke.mjs
 ```
 
+## ฐานข้อมูลและ migration
+
+แอปรัน migration ที่ค้างให้อัตโนมัติตอนเริ่ม (เมื่อ `DB_SYNC=false` ซึ่งเป็นค่าแนะนำ)
+
+```bash
+# แก้ entity แล้วสร้าง migration ใหม่ (ต่อกับฐานข้อมูลที่ migrate ล่าสุดแล้ว)
+npm run migration:generate -w apps/api -- src/migrations/AddSomething
+npm run migration:run -w apps/api       # รันเอง (ปกติแอปรันให้ตอนเริ่ม)
+npm run migration:check -w apps/api     # ตรวจว่า entity กับ migration ตรงกัน (CI รันทุกครั้ง)
+```
+
+> ฐานข้อมูลพัฒนาที่เคยสร้างด้วย `DB_SYNC=true` ให้สร้างใหม่ หรือคง `DB_SYNC=true` ต่อเฉพาะเครื่องพัฒนา
+
+## ความปลอดภัย
+
+- เปลี่ยนรหัสผ่าน / ปิดใช้งานพนักงาน → เซสชันเดิมทุกเครื่องหลุดทันที (ไม่ต้องรอโทเค็นหมดอายุ)
+- ใส่รหัสผิด 5 ครั้งต่อบัญชี → ล็อกบัญชีนั้น 15 นาที (และกันไล่เดาหลายบัญชีจาก IP เดียว)
+- ข้อมูลซ้ำ / อ้างอิงผิด / ตัวเลขเกินขอบเขต ตอบเป็น 4xx พร้อมข้อความไทย ไม่ทำให้ API ล่ม
+- บิลออฟไลน์ที่เก่าเกิน 7 วันถูกปฏิเสธ (กันนาฬิกาเครื่องผิด/ลงบิลย้อนหลัง) และไปอยู่หน้า "การซิงค์" ให้ผู้จัดการตัดสินใจ
+- รายงาน → "ประวัติที่ต้องตรวจสอบ": ยกเลิกบิล/รายการ, ส่วนลด, ราคาขายออฟไลน์ไม่ตรง, ของเสีย, แก้สูตร พร้อมผู้ทำ
+
 ## ก่อนขึ้น Production
 
-- ปิด `DB_SYNC` และเปลี่ยนไปใช้ TypeORM migrations
+- ใช้ `DB_SYNC=false` (migration) — ห้ามเปิด `DB_SYNC=true` กับฐานข้อมูลจริง
+- อยู่หลัง reverse proxy ให้ตั้ง `TRUST_PROXY=1`
 - ตั้ง `JWT_SECRET` ใหม่, เปิด HTTPS (PWA/Service Worker และ `crypto.randomUUID` ต้องการ secure context)
 - ตั้ง `CORS_ORIGINS` ให้ตรงโดเมนจริง และสำรองฐานข้อมูลอัตโนมัติ
 - ตั้งค่าสูตรให้ครบทุกเมนูที่ต้องการติดตามต้นทุน — เมนูที่ไม่มีสูตรจะไม่หักสต็อก

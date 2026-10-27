@@ -17,8 +17,14 @@ describe('calcTotals', () => {
     expect(() => calcTotals([{ unitPriceSatang: 100, qty: 1.5 }])).toThrow(MoneyError);
   });
 
-  it('ปฏิเสธส่วนลดเกินยอดรวม', () => {
+  it('ปฏิเสธส่วนลดเกินหรือเท่ายอดรวม (บิล 0 บาทจ่ายไม่ได้)', () => {
     expect(() => calcTotals([{ unitPriceSatang: 100, qty: 1 }], 200)).toThrow(MoneyError);
+    expect(() => calcTotals([{ unitPriceSatang: 100, qty: 1 }], 100)).toThrow(MoneyError);
+  });
+
+  it('ปฏิเสธยอดบิลเกินเพดาน (กัน int ล้นในฐานข้อมูล)', () => {
+    expect(() => calcTotals([{ unitPriceSatang: 100_000_000, qty: 11 }])).toThrow(MoneyError);
+    expect(calcTotals([{ unitPriceSatang: 100_000_000, qty: 10 }]).total).toBe(1_000_000_000);
   });
 
   it('ปฏิเสธราคาทศนิยม (ต้องเป็นสตางค์จำนวนเต็ม)', () => {

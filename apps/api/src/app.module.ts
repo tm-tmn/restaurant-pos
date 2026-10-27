@@ -9,6 +9,7 @@ import { AuthService } from './auth/auth.service';
 import { Public } from './auth/auth.types';
 import { BranchesController } from './branches/branches.controller';
 import { CatalogController } from './catalog/catalog.controller';
+import { dataSourceOptions } from './data-source';
 import { ALL_ENTITIES } from './entities';
 import { InventoryController } from './inventory/inventory.controller';
 import { InventoryService } from './inventory/inventory.service';
@@ -34,13 +35,8 @@ class HealthController {
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (cfg: ConfigService) => ({
-        type: 'postgres' as const,
-        url: cfg.getOrThrow<string>('DATABASE_URL'),
-        entities: ALL_ENTITIES,
-        // production ต้องปิด synchronize แล้วใช้ migration แทน
-        synchronize: cfg.get('DB_SYNC') === 'true',
-      }),
+      // อ่าน DATABASE_URL / DB_SYNC จาก env — ถ้าไม่ได้เปิด DB_SYNC จะรัน migration ที่ค้างอัตโนมัติตอนเริ่ม
+      useFactory: () => dataSourceOptions(),
     }),
     TypeOrmModule.forFeature(ALL_ENTITIES),
     JwtModule.registerAsync({

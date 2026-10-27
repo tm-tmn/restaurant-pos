@@ -268,7 +268,8 @@ export class InventoryService {
         qty,
         valueSatang,
         avgCostSatang: avgCost({ qty, valueSatang }),
-        low: qty <= r.reorderLevel,
+        // ไม่ได้ตั้งจุดสั่งซื้อ (0) → เตือนเฉพาะเมื่อหมด/ติดลบ
+        low: r.reorderLevel > 0 ? qty <= r.reorderLevel : qty < 0,
         negative: qty < 0,
         lastInAt: r.lastIn,
       };

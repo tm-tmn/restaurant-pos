@@ -23,6 +23,11 @@ export interface SettledPayment extends PaymentInput {
 
 export class MoneyError extends Error {}
 
+/** เพดานยอดต่อบิล 10 ล้านบาท — คอลัมน์เงินเป็น int (สูงสุด ~21.4 ล้านบาท) จึงต้องกันไว้ก่อนถึงฐานข้อมูล */
+export const MAX_BILL_SATANG = 1_000_000_000;
+/** เพดานราคาต่อหน่วย 1 ล้านบาท */
+export const MAX_UNIT_PRICE_SATANG = 100_000_000;
+
 function assertInt(n: number, label: string) {
   if (!Number.isInteger(n) || n < 0) {
     throw new MoneyError(`${label} ต้องเป็นจำนวนเต็มสตางค์ที่ไม่ติดลบ`);
@@ -39,8 +44,11 @@ export function calcTotals(lines: LineInput[], discountSatang = 0) {
     }
     subtotal += l.unitPriceSatang * l.qty;
   }
-  if (discountSatang > subtotal) {
-    throw new MoneyError('ส่วนลดมากกว่ายอดรวม');
+  if (subtotal > MAX_BILL_SATANG) {
+    throw new MoneyError('ยอดบิลเกินขีดจำกัดของระบบ (10 ล้านบาท)');
+  }
+  if (discountSatang >= subtotal && subtotal > 0) {
+    throw new MoneyError('ส่วนลดต้องน้อยกว่ายอดรวม');
   }
   return { subtotal, discount: discountSatang, total: subtotal - discountSatang };
 }

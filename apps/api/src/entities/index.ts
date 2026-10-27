@@ -39,6 +39,8 @@ export class User {
   @Column() displayName: string;
   @Column({ type: 'varchar', length: 20 }) role: Role;
   @Column({ default: true }) active: boolean;
+  /** เพิ่มทุกครั้งที่เปลี่ยนรหัสผ่าน/ปิดใช้งาน — โทเค็นเก่าที่มีเลขไม่ตรงจะใช้ไม่ได้ทันที */
+  @Column({ type: 'int', default: 0 }) tokenVersion: number;
   @CreateDateColumn() createdAt: Date;
 }
 
@@ -83,6 +85,8 @@ export class DiningTable {
 }
 
 @Entity('shifts')
+// หนึ่งสาขาเปิดกะได้ทีละกะ (กันกดเปิดพร้อมกันจากหลายเครื่อง)
+@Index('uq_open_shift_per_branch', ['branchId'], { unique: true, where: '"closedAt" IS NULL' })
 export class Shift {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() branchId: string;
@@ -234,7 +238,7 @@ export class StockMovement {
   @ManyToOne(() => Ingredient) @JoinColumn({ name: 'ingredientId' }) ingredient: Ingredient;
   @Column({ type: 'varchar', length: 16 }) type: MovementType;
   @Column({ type: 'int' }) qtyDelta: number;
-  @Column({ type: 'int' }) valueDeltaSatang: number;
+  @Column({ type: 'bigint', transformer: { to: (v: number) => v, from: (v: string) => Number(v) } }) valueDeltaSatang: number;
   /** คงเหลือหลังรายการนี้ — ใช้ตรวจย้อนหลังได้โดยไม่ต้องรวมใหม่ */
   @Column({ type: 'int' }) balanceQty: number;
   @Column({ type: 'varchar', nullable: true }) reason: string | null;
@@ -255,7 +259,7 @@ export class StockCount {
   @Column({ type: 'varchar', nullable: true }) note: string | null;
   @Column({ type: 'int' }) linesCounted: number;
   @Column({ type: 'int' }) linesAdjusted: number;
-  @Column({ type: 'int' }) valueDeltaSatang: number;
+  @Column({ type: 'bigint', transformer: { to: (v: number) => v, from: (v: string) => Number(v) } }) valueDeltaSatang: number;
   @CreateDateColumn() createdAt: Date;
 }
 

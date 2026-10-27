@@ -22,3 +22,18 @@ describe('units', () => {
     expect(fmtUnitCost(0, 'g')).toBe('—');
   });
 });
+
+import { baht, parseBahtToSatang } from './money';
+describe('money', () => {
+  it('baht แสดงค่าติดลบเป็น -฿', () => {
+    expect(baht(-1050)).toBe('-฿10.50');
+    expect(baht(6000)).toBe('฿60');
+    expect(baht(0)).toBe('฿0');
+  });
+  it('parseBahtToSatang', () => {
+    expect(parseBahtToSatang('1,234.5')).toBe(123450);
+    expect(parseBahtToSatang('0.07')).toBe(7);
+    expect(parseBahtToSatang('1.234')).toBeNull();
+    expect(parseBahtToSatang('-5')).toBeNull();
+  });
+});

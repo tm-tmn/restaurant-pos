@@ -10,7 +10,7 @@
 import { createStore, del, entries, get, set } from 'idb-keyval';
 import { create } from 'zustand';
 import type { Menu, SyncOrderPayload } from '../types';
-import { api, ApiError, NetworkError } from './api';
+import { api, ApiError } from './api';
 
 const queueStore = createStore('pos-offline', 'queue');
 const failedStore = createStore('pos-offline-failed', 'failed');
@@ -53,15 +53,71 @@ export async function enqueueOrder(payload: SyncOrderPayload) {
 }
 
 let inflight: Promise<Map<string, SyncResult>> | null = null;
+let queued: Promise<Map<string, SyncResult>> | null = null;
 
-/** ส่งคิวทั้งหมดขึ้นเซิร์ฟเวอร์ (กันการเรียกซ้อน) — คืนผลรายบิล */
+/**
+ * ส่งคิวทั้งหมดขึ้นเซิร์ฟเวอร์ — คืนผลรายบิล
+ * ถ้ามีรอบที่กำลังส่งอยู่ จะรอรอบนั้นจบแล้วเริ่มรอบใหม่ (ผู้เรียกที่เพิ่งเข้าคิวจึงได้ผลของบิลตัวเองเสมอ)
+ * ผู้เรียกหลายรายระหว่างรอ ใช้รอบใหม่ร่วมกัน ไม่ยิงซ้ำซ้อน
+ */
 export function flushQueue(): Promise<Map<string, SyncResult>> {
-  if (!inflight) {
-    inflight = doFlush().finally(() => {
-      inflight = null;
+  if (queued) return queued;
+  const prev = inflight ?? Promise.resolve(new Map<string, SyncResult>());
+  queued = prev
+    .catch(() => new Map<string, SyncResult>())
+    .then((prevResults) => {
+      queued = null;
+      const round = doFlush().finally(() => {
+        inflight = null;
+      });
+      inflight = round;
+      // รวมผลของรอบก่อนหน้า: บิลที่เพิ่งเข้าคิวอาจถูกส่งไปแล้วในรอบที่กำลังวิ่งอยู่
+      return round.then((r) => new Map([...prevResults, ...r]));
     });
+  return queued;
+}
+
+/** หยุดทั้งรอบ: ส่งต่อไปก็ไม่สำเร็จ (ออฟไลน์ / ต้อง login ใหม่ / เซิร์ฟเวอร์มีปัญหา) */
+class StopFlush extends Error {}
+
+async function keep(batch: QueuedOrder[], message: string) {
+  for (const b of batch) await set(b.payload.clientId, { ...b, attempts: b.attempts + 1, lastError: message }, queueStore);
+}
+
+async function reject(item: QueuedOrder, error: string, out: Map<string, SyncResult>) {
+  await set(item.payload.clientId, { ...item, attempts: item.attempts + 1, lastError: error, rejectedAt: new Date().toISOString() } satisfies FailedOrder, failedStore);
+  await del(item.payload.clientId, queueStore);
+  out.set(item.payload.clientId, { clientId: item.payload.clientId, status: 'rejected', error });
+}
+
+/**
+ * ส่งหนึ่งชุด ถ้าเซิร์ฟเวอร์ปฏิเสธทั้งชุดเพราะข้อมูล (400/413/422) — ซึ่งเกิดได้จากบิลเสียเพียงใบเดียว —
+ * จะแบ่งครึ่งส่งใหม่จนเหลือใบเดียว แล้วย้ายเฉพาะใบนั้นไปกอง "ต้องตรวจสอบ" บิลดีในชุดเดียวกันจึงไม่ค้าง
+ */
+async function sendBatch(batch: QueuedOrder[], out: Map<string, SyncResult>): Promise<void> {
+  let res: { results: SyncResult[] };
+  try {
+    res = await api<{ results: SyncResult[] }>('/sync/orders', { body: { orders: batch.map((b) => b.payload) } });
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (e instanceof ApiError && [400, 413, 422].includes(e.status)) {
+      if (batch.length === 1) return reject(batch[0], msg, out);
+      const mid = Math.ceil(batch.length / 2);
+      await sendBatch(batch.slice(0, mid), out);
+      return sendBatch(batch.slice(mid), out);
+    }
+    await keep(batch, msg);
+    throw new StopFlush(msg);
   }
-  return inflight;
+  for (const r of res.results) {
+    const item = batch.find((b) => b.payload.clientId === r.clientId);
+    if (!item) continue;
+    if (r.status === 'rejected') await reject(item, r.error, out);
+    else {
+      out.set(r.clientId, r);
+      await del(r.clientId, queueStore);
+    }
+  }
 }
 
 async function doFlush(): Promise<Map<string, SyncResult>> {
@@ -71,29 +127,10 @@ async function doFlush(): Promise<Map<string, SyncResult>> {
   useSync.setState({ syncing: true });
   try {
     all.sort((a, b) => a.payload.occurredAt.localeCompare(b.payload.occurredAt));
-    for (let i = 0; i < all.length; i += 50) {
-      const batch = all.slice(i, i + 50);
-      let res: { results: SyncResult[] };
-      try {
-        res = await api<{ results: SyncResult[] }>('/sync/orders', { body: { orders: batch.map((b) => b.payload) } });
-      } catch (e) {
-        // เชื่อมต่อไม่ได้/ยังไม่ได้ login → เก็บไว้ในคิวรอรอบถัดไป
-        for (const b of batch) {
-          await set(b.payload.clientId, { ...b, attempts: b.attempts + 1, lastError: (e as Error).message }, queueStore);
-        }
-        if (e instanceof NetworkError || (e instanceof ApiError && e.status === 401)) break;
-        continue;
-      }
-      for (const r of res.results) {
-        out.set(r.clientId, r);
-        const item = batch.find((b) => b.payload.clientId === r.clientId);
-        if (r.status === 'rejected' && item) {
-          await set(r.clientId, { ...item, attempts: item.attempts + 1, lastError: r.error, rejectedAt: new Date().toISOString() } satisfies FailedOrder, failedStore);
-        }
-        await del(r.clientId, queueStore);
-      }
-    }
+    for (let i = 0; i < all.length; i += 50) await sendBatch(all.slice(i, i + 50), out);
     useSync.setState({ lastSyncAt: new Date().toISOString() });
+  } catch (e) {
+    if (!(e instanceof StopFlush)) throw e;
   } finally {
     useSync.setState({ syncing: false });
     await useSync.getState().refreshCounts();

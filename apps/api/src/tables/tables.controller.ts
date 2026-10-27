@@ -1,17 +1,17 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { Repository } from 'typeorm';
 import { CurrentUser } from '../auth/auth.guard';
 import { AuthUser, Roles } from '../auth/auth.types';
 import { DiningTable, Order } from '../entities';
 
 class TableDto {
-  @IsString() @MinLength(1) name: string;
+  @IsString() @MinLength(1) @MaxLength(20) name: string;
   @IsOptional() @IsInt() @Min(1) @Max(100) seats?: number;
 }
 class UpdateTableDto {
-  @IsOptional() @IsString() @MinLength(1) name?: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(20) name?: string;
   @IsOptional() @IsInt() @Min(1) @Max(100) seats?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }
@@ -48,6 +48,9 @@ export class TablesController {
   async update(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTableDto) {
     const t = await this.tables.findOneBy({ id, branchId: u.branchId });
     if (!t) throw new NotFoundException();
+    if (dto.active === false && (await this.orders.existsBy({ tableId: id, status: 'open' }))) {
+      throw new BadRequestException('โต๊ะนี้มีบิลเปิดอยู่ — ชำระหรือยกเลิกบิลก่อนปิดใช้งาน');
+    }
     return this.tables.save(Object.assign(t, dto));
   }
 }

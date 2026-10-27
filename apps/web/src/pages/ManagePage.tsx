@@ -183,7 +183,7 @@ function ProductForm({
         onSubmit={(e) => {
           e.preventDefault();
           if (priceSatang === null) return;
-          onSave({ name: name.trim(), priceSatang, categoryId: categoryId || undefined, barcode, sku, active });
+          onSave({ name: name.trim(), priceSatang, categoryId: categoryId || (initial.id ? null : undefined), barcode, sku, active });
         }}
       >
         <div>
@@ -300,10 +300,12 @@ function StaffTab() {
                 <div className="text-xs text-stone-500">{u.username}</div>
               </div>
               <Badge tone={u.role === 'cashier' ? 'stone' : 'brand'}>{ROLE_TH[u.role]}</Badge>
-              <Button size="sm" variant="ghost" onClick={() => setPwFor(u)}>
-                ตั้งรหัสผ่าน
-              </Button>
-              {u.id !== me?.id && u.role !== 'owner' && (
+              {(me?.role === 'owner' || u.role === 'cashier' || u.id === me?.id) && (
+                <Button size="sm" variant="ghost" onClick={() => setPwFor(u)}>
+                  ตั้งรหัสผ่าน
+                </Button>
+              )}
+              {u.id !== me?.id && u.role !== 'owner' && (me?.role === 'owner' || u.role === 'cashier') && (
                 <Button size="sm" variant="ghost" onClick={() => save(() => api(`/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } })).then(refresh)}>
                   {u.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
                 </Button>

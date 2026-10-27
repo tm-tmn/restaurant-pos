@@ -9,6 +9,8 @@ import { ShiftsService } from '../shifts/shifts.service';
 import { AddItemsDto, CreateOrderDto, ItemInputDto, PayOrderDto, SyncOrderDto } from './orders.dto';
 
 const PG_UNIQUE_VIOLATION = '23505';
+/** บิลออฟไลน์ที่ส่งเข้ามาช้ากว่านี้จะถูกปฏิเสธ (ไปอยู่ในกอง "ต้องตรวจสอบ" ที่เครื่อง) */
+const MAX_OFFLINE_AGE_MS = 7 * 24 * 3600_000;
 
 function isUniqueViolation(e: unknown, constraintHint?: string) {
   if (!(e instanceof QueryFailedError)) return false;
@@ -251,6 +253,10 @@ export class OrdersService {
       const occurredAt = new Date(dto.occurredAt);
       const now = new Date();
       if (Number.isNaN(occurredAt.getTime())) throw new BadRequestException('occurredAt ไม่ถูกต้อง');
+      // กันบิลย้อนหลังผิดปกติ (นาฬิกาเครื่องผิด หรือแก้เวลาเพื่อลงบิลในวันที่ปิดยอดไปแล้ว)
+      if (now.getTime() - occurredAt.getTime() > MAX_OFFLINE_AGE_MS) {
+        throw new BadRequestException('บิลเก่าเกิน 7 วัน — ตรวจสอบเวลาเครื่อง POS แล้วให้ผู้จัดการบันทึกด้วยตนเอง');
+      }
       // นาฬิกาเครื่องเดินเร็วเกินไป → ใช้เวลาเซิร์ฟเวอร์แทน (กันบิลล่วงหน้า)
       const at = occurredAt.getTime() > now.getTime() + 5 * 60_000 ? now : occurredAt;
 
