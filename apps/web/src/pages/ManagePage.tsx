@@ -6,12 +6,14 @@ import { api } from '../lib/api';
 import { baht, parseBahtToSatang } from '../lib/money';
 import { useAuth } from '../store/auth';
 import { useToast } from '../store/toast';
+import { QrTab } from './QrTab';
 import type { Branch, Category, Product, StaffUser, TableInfo } from '../types';
 
 const TABS = [
   { id: 'menu', label: 'เมนู' },
   { id: 'tables', label: 'โต๊ะ' },
   { id: 'staff', label: 'พนักงาน' },
+  { id: 'qr', label: 'QR สั่งอาหาร' },
   { id: 'store', label: 'ตั้งค่าร้าน' },
 ] as const;
 
@@ -33,6 +35,7 @@ export function ManagePage() {
       {tab === 'menu' && <MenuTab />}
       {tab === 'tables' && <TablesTab />}
       {tab === 'staff' && <StaffTab />}
+      {tab === 'qr' && <QrTab />}
       {tab === 'store' && <StoreTab />}
     </div>
   );

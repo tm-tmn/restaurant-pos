@@ -52,7 +52,10 @@ export class AuthService {
     return {
       token,
       user: { id: user.id, name: user.displayName, role: user.role },
-      branch: { id: branch.id, code: branch.code, name: branch.name, promptpayId: branch.promptpayId },
+      branch: {
+        id: branch.id, code: branch.code, name: branch.name, promptpayId: branch.promptpayId,
+        qrOrdering: branch.qrOrdering, qrRequireApproval: branch.qrRequireApproval,
+      },
     };
   }
 }

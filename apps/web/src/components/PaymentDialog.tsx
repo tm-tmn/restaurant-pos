@@ -1,8 +1,11 @@
 import { Banknote, CreditCard, QrCode } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
+import { api } from '../lib/api';
 import { baht, parseBahtToSatang } from '../lib/money';
 import { isManager, useAuth } from '../store/auth';
 import type { PaymentInput, PaymentMethod } from '../types';
+import { AutoPromptPay } from './AutoPromptPay';
 import { PromptPayQR } from './PromptPayQR';
 import { Button, cn, Input, Label, Modal } from './ui';
 
@@ -30,11 +33,17 @@ export function PaymentDialog({
   onClose,
   subtotalSatang,
   onConfirm,
+  orderId,
+  onPaidAuto,
 }: {
   open: boolean;
   onClose: () => void;
   subtotalSatang: number;
   onConfirm: (r: PaymentResult) => Promise<void>;
+  /** บิลที่อยู่ในระบบแล้ว → จ่าย PromptPay แบบยืนยันอัตโนมัติได้ (ถ้าร้านเปิดใช้) */
+  orderId?: string;
+  /** เรียกเมื่อระบบแจ้งว่าเงินเข้าและปิดบิลให้แล้ว */
+  onPaidAuto?: () => void;
 }) {
   const { user, branch } = useAuth();
   const [method, setMethod] = useState<PaymentMethod>('cash');
@@ -43,6 +52,8 @@ export function PaymentDialog({
   const [reference, setReference] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cfg = useQuery({ queryKey: ['payments-config'], queryFn: () => api<{ autoConfirm: boolean }>('/payments/config'), staleTime: 5 * 60_000, enabled: open && !!orderId });
+  const auto = !!orderId && cfg.data?.autoConfirm === true;
 
   useEffect(() => {
     if (open) {
@@ -163,7 +174,14 @@ export function PaymentDialog({
               </div>
             </>
           )}
-          {method === 'promptpay' && <PromptPayQR promptpayId={branch?.promptpayId ?? null} amountSatang={Math.max(1, total)} />}
+          {method === 'promptpay' && auto && (
+            <AutoPromptPay
+              orderId={orderId!}
+              discountSatang={invalid ? null : Math.max(0, discountSatang)}
+              onPaid={() => onPaidAuto?.()}
+            />
+          )}
+          {method === 'promptpay' && !auto && <PromptPayQR promptpayId={branch?.promptpayId ?? null} amountSatang={Math.max(1, total)} />}
           {method === 'card' && (
             <div>
               <Label>เลขอ้างอิงสลิป EDC (ไม่บังคับ)</Label>
@@ -176,8 +194,8 @@ export function PaymentDialog({
 
       {(error || invalid) && <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error ?? invalid}</p>}
 
-      <Button size="lg" className="mt-5 w-full" disabled={!!invalid || busy} onClick={confirm}>
-        {busy ? 'กำลังบันทึก…' : method === 'promptpay' ? 'ได้รับเงินแล้ว — ยืนยันการชำระ' : 'ยืนยันการชำระ'}
+      <Button size="lg" variant={method === 'promptpay' && auto ? 'outline' : 'primary'} className="mt-5 w-full" disabled={!!invalid || busy} onClick={confirm}>
+        {busy ? 'กำลังบันทึก…' : method === 'promptpay' ? (auto ? 'ยืนยันเอง (กรณีระบบไม่แจ้งเงินเข้า)' : 'ได้รับเงินแล้ว — ยืนยันการชำระ') : 'ยืนยันการชำระ'}
       </Button>
     </Modal>
   );

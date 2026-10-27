@@ -1,4 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import {
+  BeforeInsert,
   Column,
   CreateDateColumn,
   Entity,
@@ -17,6 +19,8 @@ export type OrderStatus = 'open' | 'paid' | 'void';
 export type OrderType = 'dine_in' | 'takeaway';
 export type PaymentMethod = 'cash' | 'promptpay' | 'card';
 
+export const newQrToken = () => randomBytes(16).toString('hex');
+
 /** เงินทุกช่องเก็บเป็นจำนวนเต็ม "สตางค์" */
 
 @Entity('branches')
@@ -26,6 +30,10 @@ export class Branch {
   @Column() name: string;
   /** เบอร์โทร/เลขบัตรประชาชน/เลขผู้เสียภาษี ที่ผูกกับ PromptPay ของร้าน */
   @Column({ type: 'varchar', nullable: true }) promptpayId: string | null;
+  /** เปิดให้ลูกค้าสแกน QR ที่โต๊ะเพื่อสั่งอาหารเอง */
+  @Column({ default: true }) qrOrdering: boolean;
+  /** รายการที่ลูกค้าสั่งเองต้องให้พนักงานกดยืนยันก่อนเข้าครัว (กันสั่งแกล้ง) */
+  @Column({ default: true }) qrRequireApproval: boolean;
   @CreateDateColumn() createdAt: Date;
 }
 
@@ -82,6 +90,11 @@ export class DiningTable {
   @Column() name: string;
   @Column({ type: 'int', default: 4 }) seats: number;
   @Column({ default: true }) active: boolean;
+  /** โทเค็นสุ่มใน QR ประจำโต๊ะ (หมุนเปลี่ยนได้ถ้า QR หลุดไปนอกร้าน) */
+  @Column({ type: 'varchar', length: 40, unique: true }) qrToken: string;
+  @BeforeInsert() private ensureToken() {
+    this.qrToken ??= newQrToken();
+  }
 }
 
 @Entity('shifts')
@@ -129,7 +142,14 @@ export class Order {
   @OneToMany(() => Payment, (p) => p.order, { cascade: true }) payments: Payment[];
 }
 
+export type KitchenStatus = 'new' | 'preparing' | 'ready' | 'served';
+/** active = เข้าบิลแล้ว, pending = ลูกค้าสั่งผ่าน QR รอพนักงานยืนยัน (ยังไม่นับยอด), void = ยกเลิก */
+export type ItemStatus = 'active' | 'pending' | 'void';
+
 @Entity('order_items')
+@Index(['orderId'])
+// ดึงรายการที่ครัวยังต้องทำ (จอครัว) โดยไม่ต้องกวาดทั้งตาราง
+@Index('idx_items_kitchen_open', ['kitchenStatus'], { where: `"status" = 'active' AND "kitchenStatus" <> 'served'` })
 export class OrderItem {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() orderId: string;
@@ -142,7 +162,11 @@ export class OrderItem {
   @Column({ type: 'int' }) unitPriceSatang: number;
   @Column({ type: 'int' }) qty: number;
   @Column({ type: 'varchar', nullable: true }) note: string | null;
-  @Column({ type: 'varchar', length: 10, default: 'active' }) status: 'active' | 'void';
+  @Column({ type: 'varchar', length: 10, default: 'active' }) status: ItemStatus;
+  @Column({ type: 'varchar', length: 12, default: 'new' }) kitchenStatus: KitchenStatus;
+  @Column({ type: 'varchar', length: 10, default: 'staff' }) source: 'staff' | 'customer';
+  /** รหัสการส่งออเดอร์หนึ่งครั้งจากหน้าลูกค้า — ส่งซ้ำ (เน็ตหลุด/กดซ้ำ) จะไม่เกิดรายการซ้ำ */
+  @Column({ type: 'uuid', nullable: true }) submissionId: string | null;
   @Column({ type: 'varchar', nullable: true }) voidReason: string | null;
   @Column({ type: 'timestamptz', nullable: true }) sentToKitchenAt: Date | null;
 }
@@ -263,6 +287,68 @@ export class StockCount {
   @CreateDateColumn() createdAt: Date;
 }
 
+// =================== Phase 3: QR ordering, kitchen, queue, payments ===================
+
+export type QueueStatus = 'waiting' | 'called' | 'seated' | 'cancelled' | 'no_show';
+
+/** บัตรคิว: ลูกค้ารอโต๊ะ (เข้าคิวเองผ่าน QR หน้าร้าน หรือพนักงานกดให้) */
+@Entity('queue_tickets')
+@Unique(['branchId', 'day', 'number'])
+@Index(['branchId', 'day', 'status'])
+export class QueueTicket {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column() branchId: string;
+  @Column({ type: 'date' }) day: string;
+  @Column({ type: 'int' }) number: number;
+  @Column({ type: 'int' }) partySize: number;
+  @Column({ type: 'varchar', nullable: true }) name: string | null;
+  @Column({ type: 'varchar', nullable: true }) phone: string | null;
+  /** โทเค็นสุ่มให้ลูกค้าเปิดดูสถานะคิวของตัวเอง */
+  @Column({ type: 'varchar', length: 40, unique: true }) token: string;
+  @Column({ type: 'varchar', length: 12, default: 'waiting' }) status: QueueStatus;
+  @Column({ type: 'varchar', length: 10, default: 'staff' }) source: 'staff' | 'customer';
+  @Column({ type: 'int', default: 0 }) callCount: number;
+  @Column({ type: 'uuid', nullable: true }) tableId: string | null;
+  @CreateDateColumn() createdAt: Date;
+  @Column({ type: 'timestamptz', nullable: true }) calledAt: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) closedAt: Date | null;
+}
+
+@Entity('queue_counters')
+export class QueueCounter {
+  @PrimaryColumn() branchId: string;
+  @PrimaryColumn({ type: 'date' }) day: string;
+  @Column({ type: 'int', default: 0 }) n: number;
+}
+
+/** pending = รอเงินเข้า, paid = ปิดบิลแล้ว, expired = QR หมดอายุ, cancelled = บิลเปลี่ยนจึงยกเลิก, review = เงินเข้าแต่จับคู่ไม่ได้ ต้องให้คนตรวจ */
+export type IntentStatus = 'pending' | 'paid' | 'expired' | 'cancelled' | 'review';
+
+/** คำขอชำระด้วย PromptPay หนึ่งครั้ง — ผูกกับบิลและยอดที่ตรึงไว้ ณ ตอนสร้าง */
+@Entity('payment_intents')
+@Index(['orderId', 'status'])
+export class PaymentIntent {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column() branchId: string;
+  @Column('uuid') orderId: string;
+  @Column({ type: 'int' }) amountSatang: number;
+  /** ส่วนลดที่ผู้จัดการอนุมัติตอนสร้าง (ใช้ตอนปิดบิลอัตโนมัติ) */
+  @Column({ type: 'int', default: 0 }) discountSatang: number;
+  @Column({ type: 'varchar', length: 10, default: 'pending' }) status: IntentStatus;
+  @Column({ type: 'text' }) qrPayload: string;
+  @Column({ type: 'timestamptz' }) expiresAt: Date;
+  /** เลขธุรกรรมจากผู้ให้บริการ — unique กันเงินเข้าซ้ำถูกนับสองครั้ง */
+  @Index({ unique: true, where: '"txnId" IS NOT NULL' })
+  @Column({ type: 'varchar', nullable: true })
+  txnId: string | null;
+  @Column({ type: 'int', nullable: true }) paidAmountSatang: number | null;
+  @Column({ type: 'timestamptz', nullable: true }) paidAt: Date | null;
+  @Column({ type: 'varchar', nullable: true }) note: string | null;
+  /** ผู้สร้าง: พนักงาน (user id) หรือ 'customer-qr' */
+  @Column() createdBy: string;
+  @CreateDateColumn() createdAt: Date;
+}
+
 export const ALL_ENTITIES = [
   Branch,
   User,
@@ -280,4 +366,7 @@ export const ALL_ENTITIES = [
   StockLevel,
   StockMovement,
   StockCount,
+  QueueTicket,
+  QueueCounter,
+  PaymentIntent,
 ];

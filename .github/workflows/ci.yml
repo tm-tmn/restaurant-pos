@@ -36,9 +36,26 @@ jobs:
       - run: npm run seed  # รัน migration ก่อน seed
       - name: Entities match migrations
         run: npm run migration:check -w apps/api
-      - name: API smoke test
+      - name: API smoke + edge + Phase 3 (โหมดจำลองการชำระเงิน)
+        env:
+          TRUST_PROXY: '1'
+          PAYMENT_PROVIDER: mock
         run: |
           node apps/api/dist/main.js &
+          echo $! > api.pid
           for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break; sleep 1; done
           API_URL=http://localhost:3000/api node apps/api/scripts/smoke.mjs
           API_URL=http://localhost:3000/api node apps/api/scripts/edge.mjs
+          API_URL=http://localhost:3000/api node apps/api/scripts/phase3.mjs
+          kill $(cat api.pid)
+      - name: Webhook รับแจ้งเงินเข้า (โหมด webhook + ตรวจลายเซ็น)
+        env:
+          TRUST_PROXY: '1'
+          PAYMENT_PROVIDER: webhook
+          PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-0123456789abcdef
+        run: |
+          node apps/api/dist/main.js &
+          echo $! > api.pid
+          for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break; sleep 1; done
+          API_URL=http://localhost:3000/api node apps/api/scripts/webhook.mjs
+          kill $(cat api.pid)

@@ -6,6 +6,8 @@ export interface Branch {
   code: string;
   name: string;
   promptpayId: string | null;
+  qrOrdering?: boolean;
+  qrRequireApproval?: boolean;
 }
 export interface SessionUser {
   id: string;
@@ -46,7 +48,9 @@ export interface OrderItem {
   unitPriceSatang: number;
   qty: number;
   note: string | null;
-  status: 'active' | 'void';
+  status: 'active' | 'pending' | 'void';
+  kitchenStatus?: KitchenStatus;
+  source?: 'staff' | 'customer';
   voidReason: string | null;
 }
 export interface PaymentRow {
@@ -181,4 +185,63 @@ export interface StaffUser {
   displayName: string;
   role: Role;
   active: boolean;
+}
+
+// ---------- Phase 3 ----------
+export type KitchenStatus = 'new' | 'preparing' | 'ready' | 'served';
+
+export interface KitchenTicket {
+  orderId: string;
+  orderNo: string;
+  type: 'dine_in' | 'takeaway';
+  tableName: string | null;
+  sentAt: string;
+  items: { id: string; name: string; qty: number; note: string | null; status: KitchenStatus; source: 'staff' | 'customer'; sentAt: string }[];
+}
+export interface PendingGroup {
+  orderId: string;
+  orderNo: string;
+  tableName: string | null;
+  items: { itemId: string; name: string; qty: number; unitPriceSatang: number; note: string | null }[];
+}
+export type QueueStatus = 'waiting' | 'called' | 'seated' | 'cancelled' | 'no_show';
+export interface QueueTicket {
+  id: string;
+  code: string;
+  number: number;
+  partySize: number;
+  name: string | null;
+  phone: string | null;
+  status: QueueStatus;
+  source: 'staff' | 'customer';
+  callCount: number;
+  createdAt: string;
+  calledAt: string | null;
+}
+export type IntentStatus = 'pending' | 'paid' | 'expired' | 'cancelled' | 'review';
+export interface PaymentIntent {
+  id: string;
+  orderId: string;
+  amountSatang: number;
+  discountSatang: number;
+  status: IntentStatus;
+  qrPayload: string;
+  expiresAt: string;
+  note: string | null;
+}
+// หน้าลูกค้า (สาธารณะ)
+export interface CustomerBill {
+  totalSatang: number;
+  items: { name: string; qty: number; unitPriceSatang: number; note: string | null; status: 'active' | 'pending' | 'void'; kitchenStatus: KitchenStatus }[];
+}
+export interface CustomerPage {
+  branch: { name: string };
+  table: { name: string };
+  requireApproval: boolean;
+  canPay: boolean;
+  menu: {
+    categories: { id: string; name: string }[];
+    products: { id: string; name: string; priceSatang: number; categoryId: string | null }[];
+  };
+  order: CustomerBill | null;
 }

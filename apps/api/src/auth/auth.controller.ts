@@ -30,7 +30,10 @@ export class AuthController {
     const branch = await this.branches.findOneByOrFail({ id: u.branchId });
     return {
       user: { id: u.id, name: u.name, role: u.role },
-      branch: { id: branch.id, code: branch.code, name: branch.name, promptpayId: branch.promptpayId },
+      branch: {
+        id: branch.id, code: branch.code, name: branch.name, promptpayId: branch.promptpayId,
+        qrOrdering: branch.qrOrdering, qrRequireApproval: branch.qrRequireApproval,
+      },
     };
   }
 }

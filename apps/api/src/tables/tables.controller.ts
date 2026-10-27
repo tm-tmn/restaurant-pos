@@ -4,7 +4,7 @@ import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength 
 import { Repository } from 'typeorm';
 import { CurrentUser } from '../auth/auth.guard';
 import { AuthUser, Roles } from '../auth/auth.types';
-import { DiningTable, Order } from '../entities';
+import { DiningTable, newQrToken, Order } from '../entities';
 
 class TableDto {
   @IsString() @MinLength(1) @MaxLength(20) name: string;
@@ -33,14 +33,36 @@ export class TablesController {
     const byTable = new Map(open.filter((o) => o.tableId).map((o) => [o.tableId, o]));
     return tables.map((t) => {
       const o = byTable.get(t.id);
-      return { ...t, openOrder: o ? { id: o.id, orderNo: o.orderNo, totalSatang: o.totalSatang } : null };
+      const { qrToken: _omit, ...rest } = t; // โทเค็น QR ไม่ส่งให้พนักงานทั่วไป — ผู้จัดการดูได้จาก /tables/qr
+      return { ...rest, openOrder: o ? { id: o.id, orderNo: o.orderNo, totalSatang: o.totalSatang } : null };
     });
+  }
+
+  /** โทเค็นใน QR ประจำโต๊ะ (สำหรับพิมพ์ QR) */
+  @Roles('manager')
+  @Get('qr')
+  async qr(@CurrentUser() u: AuthUser) {
+    const rows = await this.tables.find({ where: { branchId: u.branchId, active: true }, order: { name: 'ASC' } });
+    return rows.map((t) => ({ id: t.id, name: t.name, qrToken: t.qrToken }));
+  }
+
+  /** QR หลุดไปนอกร้าน/ถูกแอบถ่าย → หมุนโทเค็นใหม่ QR เดิมใช้ไม่ได้ทันที */
+  @Roles('manager')
+  @Post(':id/rotate-qr')
+  async rotate(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    const t = await this.tables.findOneBy({ id, branchId: u.branchId });
+    if (!t) throw new NotFoundException();
+    t.qrToken = newQrToken();
+    await this.tables.save(t);
+    return { id: t.id, name: t.name, qrToken: t.qrToken };
   }
 
   @Roles('manager')
   @Post()
-  create(@CurrentUser() u: AuthUser, @Body() dto: TableDto) {
-    return this.tables.save(this.tables.create({ ...dto, branchId: u.branchId }));
+  async create(@CurrentUser() u: AuthUser, @Body() dto: TableDto) {
+    const t = await this.tables.save(this.tables.create({ ...dto, branchId: u.branchId }));
+    const { qrToken: _omit, ...rest } = t;
+    return rest;
   }
 
   @Roles('manager')
@@ -51,6 +73,8 @@ export class TablesController {
     if (dto.active === false && (await this.orders.existsBy({ tableId: id, status: 'open' }))) {
       throw new BadRequestException('โต๊ะนี้มีบิลเปิดอยู่ — ชำระหรือยกเลิกบิลก่อนปิดใช้งาน');
     }
-    return this.tables.save(Object.assign(t, dto));
+    const saved = await this.tables.save(Object.assign(t, dto));
+    const { qrToken: _omit, ...rest } = saved;
+    return rest;
   }
 }

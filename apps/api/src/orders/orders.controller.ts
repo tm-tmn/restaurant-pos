@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { IsIn, IsOptional } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { CurrentUser } from '../auth/auth.guard';
 import { AuthUser, Roles } from '../auth/auth.types';
 import { AddItemsDto, CreateOrderDto, PayOrderDto, SyncBatchDto, VoidDto } from './orders.dto';
@@ -9,6 +9,13 @@ class ListQuery {
   @IsOptional() @IsIn(['open', 'paid', 'void']) status?: 'open' | 'paid' | 'void';
 }
 
+class PendingActionDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(100) @IsUUID('all', { each: true }) itemIds?: string[];
+}
+class RejectPendingDto extends PendingActionDto {
+  @IsOptional() @IsString() @MaxLength(200) reason?: string;
+}
+
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
@@ -16,6 +23,12 @@ export class OrdersController {
   @Get()
   list(@CurrentUser() u: AuthUser, @Query() q: ListQuery) {
     return this.orders.list(u, q.status ?? 'open');
+  }
+
+  /** รายการที่ลูกค้าสั่งผ่าน QR และรอพนักงานยืนยัน (ต้องอยู่ก่อน :id) */
+  @Get('pending')
+  pending(@CurrentUser() u: AuthUser) {
+    return this.orders.listPending(u);
   }
 
   @Get(':id')
@@ -39,6 +52,18 @@ export class OrdersController {
     // ส่วนลดต้องให้ผู้จัดการขึ้นไปเป็นผู้อนุมัติ
     if ((dto.discountSatang ?? 0) > 0 && u.role === 'cashier') throw new ForbiddenException('ส่วนลดต้องให้ผู้จัดการดำเนินการ');
     return this.orders.pay(u, id, dto);
+  }
+
+  @Post(':id/pending/approve')
+  @HttpCode(200)
+  approve(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PendingActionDto) {
+    return this.orders.approvePending(u, id, dto.itemIds);
+  }
+
+  @Post(':id/pending/reject')
+  @HttpCode(200)
+  reject(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectPendingDto) {
+    return this.orders.rejectPending(u, id, dto.reason?.trim() || 'ไม่ระบุเหตุผล', dto.itemIds);
   }
 
   @Roles('manager')

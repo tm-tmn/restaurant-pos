@@ -19,7 +19,12 @@ export function OrderPage() {
   const { user, branch } = useAuth();
   const manager = isManager(user?.role);
 
-  const order = useQuery({ queryKey: ['order', id], queryFn: () => api<Order>(`/orders/${id}`) });
+  const order = useQuery({
+    queryKey: ['order', id],
+    queryFn: () => api<Order>(`/orders/${id}`),
+    // บิลเปิดอยู่: ดึงใหม่ทุก 5 วินาที เห็นรายการที่ลูกค้าสั่งเพิ่ม/เงินเข้าอัตโนมัติ
+    refetchInterval: (q) => (q.state.data?.status === 'open' ? 5_000 : false),
+  });
   const shift = useQuery({ queryKey: ['shift'], queryFn: () => api<Shift | null>('/shifts/current'), retry: false });
   const [payOpen, setPayOpen] = useState(false);
   const [voidTarget, setVoidTarget] = useState<{ kind: 'order' } | { kind: 'item'; itemId: string; name: string } | null>(null);
@@ -31,13 +36,13 @@ export function OrderPage() {
   if (order.isError) return <Empty>{(order.error as Error).message}</Empty>;
   const o = order.data!;
   const active = o.items.filter((i) => i.status === 'active');
+  const pendingItems = o.items.filter((i) => i.status === 'pending');
   const refresh = (next: Order) => {
     qc.setQueryData(['order', id], next);
     qc.invalidateQueries({ queryKey: ['tables'] });
   };
 
-  async function pay(r: PaymentResult) {
-    const next = await api<Order>(`/orders/${id}/pay`, { body: r });
+  function finishPaid(next: Order) {
     refresh(next);
     setPayOpen(false);
     const change = next.payments.reduce((s, p) => s + p.changeSatang, 0);
@@ -53,6 +58,28 @@ export function OrderPage() {
       totalSatang: next.totalSatang,
       payments: next.payments,
     });
+  }
+
+  async function pay(r: PaymentResult) {
+    finishPaid(await api<Order>(`/orders/${id}/pay`, { body: r }));
+  }
+
+  /** ระบบปิดบิลให้แล้วจากเงิน PromptPay เข้า — โหลดบิลล่าสุดมาแสดง */
+  async function paidAuto() {
+    finishPaid(await api<Order>(`/orders/${id}`));
+  }
+
+  async function decidePending(action: 'approve' | 'reject') {
+    setBusy(true);
+    try {
+      refresh(await api<Order>(`/orders/${id}/pending/${action}`, { body: action === 'reject' ? { reason: 'ปฏิเสธโดยพนักงาน' } : {} }));
+      qc.invalidateQueries({ queryKey: ['pending'] });
+      toast(action === 'approve' ? 'ยืนยันแล้ว ส่งเข้าครัว' : 'ปฏิเสธรายการแล้ว');
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirmVoid() {
@@ -89,15 +116,29 @@ export function OrderPage() {
             </Button>
           )}
         </div>
+        {pendingItems.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <span className="font-medium">ลูกค้าสั่งผ่าน QR {pendingItems.length} รายการ รอยืนยัน</span>
+            <Button size="sm" variant="outline" className="ml-auto" disabled={busy} onClick={() => confirm('ปฏิเสธรายการที่ลูกค้าสั่งทั้งหมด?') && decidePending('reject')}>
+              ปฏิเสธ
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => decidePending('approve')}>
+              ยืนยัน ส่งเข้าครัว
+            </Button>
+          </div>
+        )}
         <ul className="divide-y divide-stone-100">
           {o.items.map((i) => (
             <li key={i.id} className={`flex items-center gap-3 px-4 py-3 ${i.status === 'void' ? 'text-stone-400' : ''}`}>
               <span className="w-8 text-right font-semibold tabular">{i.qty}×</span>
               <div className="min-w-0 flex-1">
                 <div className={i.status === 'void' ? 'line-through' : 'font-medium'}>{i.nameSnapshot}</div>
+                {i.note && <div className="text-xs text-stone-500">{i.note}</div>}
                 {i.status === 'void' && <div className="text-xs">ยกเลิก: {i.voidReason}</div>}
+                {i.status === 'pending' && <Badge tone="amber">รอยืนยัน</Badge>}
+                {i.status === 'active' && i.source === 'customer' && <Badge tone="brand">ลูกค้าสั่งเอง</Badge>}
               </div>
-              <span className="tabular">{baht(i.unitPriceSatang * i.qty)}</span>
+              <span className="tabular">{i.status === 'pending' ? '' : baht(i.unitPriceSatang * i.qty)}</span>
               {o.status === 'open' && i.status === 'active' && manager && (
                 <button
                   className="rounded-lg p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-600"
@@ -138,12 +179,13 @@ export function OrderPage() {
                 ยกเลิกบิล
               </Button>
             )}
+            {pendingItems.length > 0 && <p className="self-center text-sm text-amber-700">ยืนยันหรือปฏิเสธรายการที่ลูกค้าสั่งก่อนชำระ</p>}
             {shift.isSuccess && shift.data === null && (
               <p className="self-center text-sm text-amber-700">
                 ยังไม่ได้เปิดกะ — <Link to="/shift" className="underline">เปิดกะ</Link>
               </p>
             )}
-            <Button size="lg" className="sm:ml-auto sm:w-56" disabled={!active.length || (shift.isSuccess && shift.data === null)} onClick={() => setPayOpen(true)}>
+            <Button size="lg" className="sm:ml-auto sm:w-56" disabled={!active.length || pendingItems.length > 0 || (shift.isSuccess && shift.data === null)} onClick={() => setPayOpen(true)}>
               ชำระเงิน
             </Button>
           </div>
@@ -173,7 +215,7 @@ export function OrderPage() {
         )}
       </Card>
 
-      <PaymentDialog open={payOpen} onClose={() => setPayOpen(false)} subtotalSatang={o.subtotalSatang} onConfirm={pay} />
+      <PaymentDialog open={payOpen} onClose={() => setPayOpen(false)} subtotalSatang={o.subtotalSatang} onConfirm={pay} orderId={o.id} onPaidAuto={paidAuto} />
 
       <Modal open={!!voidTarget} onClose={() => setVoidTarget(null)} title={voidTarget?.kind === 'order' ? 'ยกเลิกทั้งบิล' : 'ยกเลิกรายการ'}>
         <p className="mb-3 text-stone-600">
