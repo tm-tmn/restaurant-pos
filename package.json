@@ -1,0 +1,21 @@
+{
+  "name": "restaurant-pos",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Restaurant POS (Phase 1: Core POS) — React PWA + NestJS + PostgreSQL",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "build": "npm run build -w apps/api && npm run build -w apps/web",
+    "test": "npm run test -w apps/api && npm run test -w apps/web",
+    "seed": "npm run seed -w apps/api",
+    "db:up": "docker compose up -d postgres redis",
+    "db:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

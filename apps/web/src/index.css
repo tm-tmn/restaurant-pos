@@ -1,0 +1,53 @@
+@import '@fontsource/ibm-plex-sans-thai/400.css';
+@import '@fontsource/ibm-plex-sans-thai/500.css';
+@import '@fontsource/ibm-plex-sans-thai/600.css';
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'IBM Plex Sans Thai', system-ui, sans-serif;
+  --color-brand-50: #f0fdfa;
+  --color-brand-100: #ccfbf1;
+  --color-brand-500: #14b8a6;
+  --color-brand-600: #0d9488;
+  --color-brand-700: #0f766e;
+  --color-brand-800: #115e59;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  @apply bg-stone-100 text-stone-900 antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ใบเสร็จ: แสดงเฉพาะตอนพิมพ์ ขนาดกระดาษความร้อน 80mm */
+.print-only {
+  display: none;
+}
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 4mm;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-only,
+  .print-only * {
+    visibility: visible;
+  }
+  .print-only {
+    display: block;
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 72mm;
+    font-size: 12px;
+    color: #000;
+  }
+}

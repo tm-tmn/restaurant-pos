@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+          POSTGRES_DB: pos
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U pos" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://pos:pos@localhost:5432/pos
+      DB_SYNC: 'true'
+      JWT_SECRET: ci-only-secret-0123456789abcdef
+      PORT: '3000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run seed
+      - name: API smoke test
+        run: |
+          node apps/api/dist/main.js &
+          for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break; sleep 1; done
+          API_URL=http://localhost:3000/api node apps/api/scripts/smoke.mjs

@@ -1,0 +1,32 @@
+import { Body, Controller, Get, Post } from '@nestjs/common';
+import { IsInt, Min } from 'class-validator';
+import { CurrentUser } from '../auth/auth.guard';
+import { AuthUser } from '../auth/auth.types';
+import { ShiftsService } from './shifts.service';
+
+class OpenShiftDto {
+  @IsInt() @Min(0) openingCashSatang: number;
+}
+class CloseShiftDto {
+  @IsInt() @Min(0) closingCashSatang: number;
+}
+
+@Controller('shifts')
+export class ShiftsController {
+  constructor(private readonly shifts: ShiftsService) {}
+
+  @Get('current')
+  current(@CurrentUser() u: AuthUser) {
+    return this.shifts.current(u);
+  }
+
+  @Post('open')
+  open(@CurrentUser() u: AuthUser, @Body() dto: OpenShiftDto) {
+    return this.shifts.open(u, dto.openingCashSatang);
+  }
+
+  @Post('close')
+  close(@CurrentUser() u: AuthUser, @Body() dto: CloseShiftDto) {
+    return this.shifts.close(u, dto.closingCashSatang);
+  }
+}
