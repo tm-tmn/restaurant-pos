@@ -25,6 +25,10 @@ const AUDIT_TH: Record<string, string> = {
   'sync.price_mismatch': 'ราคาขายออฟไลน์ไม่ตรงราคาปัจจุบัน',
   'stock.waste': 'บันทึกของเสีย',
   'recipe.update': 'แก้ไขสูตรอาหาร',
+  'payment.auto_confirm': 'ระบบปิดบิลอัตโนมัติ (PromptPay เงินเข้า)',
+  'payment.review': 'เงินเข้าแต่จับคู่บิลไม่ได้ — ต้องตรวจ/คืนเงิน',
+  'order.qr_approve': 'ยืนยันรายการที่ลูกค้าสั่งผ่าน QR',
+  'order.qr_reject': 'ปฏิเสธรายการที่ลูกค้าสั่งผ่าน QR',
 };
 
 @Roles('manager')

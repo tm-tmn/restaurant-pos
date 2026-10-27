@@ -51,3 +51,18 @@ body {
     color: #000;
   }
 }
+
+/* แผ่น QR โต๊ะ: พิมพ์ A4 (ใช้ named page เพื่อไม่ชนกับใบเสร็จ 80mm) */
+.qr-sheet {
+  page: qrsheet;
+}
+@page qrsheet {
+  size: A4;
+  margin: 10mm;
+}
+@media print {
+  .qr-sheet.print-only {
+    width: 190mm;
+    font-size: 14px;
+  }
+}

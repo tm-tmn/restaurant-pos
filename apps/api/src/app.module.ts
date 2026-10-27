@@ -13,6 +13,13 @@ import { dataSourceOptions } from './data-source';
 import { ALL_ENTITIES } from './entities';
 import { InventoryController } from './inventory/inventory.controller';
 import { InventoryService } from './inventory/inventory.service';
+import { KitchenController } from './kitchen/kitchen.controller';
+import { PaymentsController } from './payments/payments.controller';
+import { PaymentsService } from './payments/payments.service';
+import { PublicController } from './public/public.controller';
+import { PublicService } from './public/public.service';
+import { QueueController } from './queue/queue.controller';
+import { QueueService } from './queue/queue.service';
 import { OrdersController, SyncController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
 import { ReportsController } from './reports/reports.controller';
@@ -63,7 +70,11 @@ class HealthController {
     SyncController,
     ReportsController,
     InventoryController,
+    KitchenController,
+    QueueController,
+    PaymentsController,
+    PublicController,
   ],
-  providers: [AuthService, ShiftsService, InventoryService, OrdersService, { provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [AuthService, ShiftsService, InventoryService, OrdersService, PaymentsService, QueueService, PublicService, { provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule {}

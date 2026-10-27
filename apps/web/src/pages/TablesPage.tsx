@@ -1,13 +1,29 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { Empty, cn } from '../components/ui';
+import { Button, Card, Empty, cn } from '../components/ui';
+import { usePending } from '../hooks/usePending';
+import { useToast } from '../store/toast';
 import { api } from '../lib/api';
 import { baht } from '../lib/money';
 import type { TableInfo } from '../types';
 
 export function TablesPage() {
   const nav = useNavigate();
+  const qc = useQueryClient();
+  const toast = useToast((s) => s.show);
+  const pending = usePending();
+
+  async function decide(orderId: string, action: 'approve' | 'reject') {
+    try {
+      await api(`/orders/${orderId}/pending/${action}`, { body: action === 'reject' ? { reason: 'ปฏิเสธโดยพนักงาน' } : {} });
+      toast(action === 'approve' ? 'ยืนยันแล้ว ส่งเข้าครัว' : 'ปฏิเสธรายการแล้ว');
+      await Promise.all([pending.refetch(), qc.invalidateQueries({ queryKey: ['tables'] }), qc.invalidateQueries({ queryKey: ['kitchen'] })]);
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  }
+
   const tables = useQuery({ queryKey: ['tables'], queryFn: () => api<TableInfo[]>('/tables'), refetchInterval: 15_000 });
 
   if (tables.isLoading) return <Empty>กำลังโหลด…</Empty>;
@@ -22,6 +38,34 @@ export function TablesPage() {
           ไม่ว่าง {busy} / {tables.data!.length}
         </span>
       </div>
+      {(pending.data?.length ?? 0) > 0 && (
+        <Card className="mb-4 border-amber-300 bg-amber-50">
+          <h2 className="border-b border-amber-200 px-4 py-2 font-semibold text-amber-900">ลูกค้าสั่งผ่าน QR · รอยืนยัน</h2>
+          <ul className="divide-y divide-amber-200">
+            {pending.data!.map((g) => (
+              <li key={g.orderId} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <div className="min-w-32 text-lg font-semibold">โต๊ะ {g.tableName ?? '-'}</div>
+                <ul className="min-w-0 flex-1 text-sm">
+                  {g.items.map((i) => (
+                    <li key={i.itemId}>
+                      <span className="font-medium tabular">{i.qty}×</span> {i.name}
+                      {i.note && <span className="text-red-600"> ({i.note})</span>} <span className="text-stone-500 tabular">{baht(i.unitPriceSatang * i.qty)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => confirm(`ปฏิเสธรายการของโต๊ะ ${g.tableName}?`) && decide(g.orderId, 'reject')}>
+                    ปฏิเสธ
+                  </Button>
+                  <Button size="sm" onClick={() => decide(g.orderId, 'approve')}>
+                    ยืนยัน ส่งเข้าครัว
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       {tables.data!.length === 0 ? (
         <Empty>ยังไม่มีโต๊ะ — เพิ่มได้ที่ จัดการ → โต๊ะ</Empty>
       ) : (

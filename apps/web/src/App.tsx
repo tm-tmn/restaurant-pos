@@ -4,6 +4,10 @@ import { Layout } from './components/Layout';
 import { Toast } from './components/Toast';
 import { api } from './lib/api';
 import { startAutoSync } from './lib/offline';
+import { CustomerOrderPage } from './pages/CustomerOrderPage';
+import { KitchenPage } from './pages/KitchenPage';
+import { QueuePage } from './pages/QueuePage';
+import { QueueBoardPage, QueueJoinPage, QueueTicketPage } from './pages/QueuePublicPages';
 import { InventoryPage } from './pages/inventory/InventoryPage';
 import { LoginPage } from './pages/LoginPage';
 import { ManagePage } from './pages/ManagePage';
@@ -42,6 +46,11 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {/* หน้าสาธารณะสำหรับลูกค้า (ไม่ต้องล็อกอิน) */}
+        <Route path="/t/:token" element={<CustomerOrderPage />} />
+        <Route path="/q/ticket/:token" element={<QueueTicketPage />} />
+        <Route path="/q/:branchCode" element={<QueueJoinPage />} />
+        <Route path="/board/:branchCode" element={<QueueBoardPage />} />
         <Route
           element={
             <RequireAuth>
@@ -52,6 +61,8 @@ export function App() {
           <Route index element={<PosPage />} />
           <Route path="tables" element={<TablesPage />} />
           <Route path="orders/:id" element={<OrderPage />} />
+          <Route path="kitchen" element={<KitchenPage />} />
+          <Route path="queue" element={<QueuePage />} />
           <Route path="shift" element={<ShiftPage />} />
           <Route path="sync" element={<SyncPage />} />
           <Route path="reports" element={<RequireManager><ReportsPage /></RequireManager>} />

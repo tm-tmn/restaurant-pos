@@ -168,6 +168,9 @@ function describe(a: AuditRow): string {
   if (typeof d.totalSatang === 'number') parts.push(baht(d.totalSatang));
   if (typeof d.discountSatang === 'number') parts.push(`ส่วนลด ${baht(d.discountSatang)}`);
   if (typeof d.valueSatang === 'number') parts.push(`มูลค่า ${baht(d.valueSatang)}`);
+  if (typeof d.amountSatang === 'number') parts.push(`ยอด ${baht(d.amountSatang)}`);
+  if (d.txnId) parts.push(`อ้างอิง ${d.txnId}`);
+  if (typeof d.items === 'number') parts.push(`${d.items} รายการ`);
   if (Array.isArray(d.items) && a.action === 'sync.price_mismatch') {
     parts.push(
       (d.items as { name: string; soldSatang: number; currentSatang: number }[])
@@ -184,7 +187,7 @@ function AuditList({ date }: { date: string }) {
   return (
     <Card className="p-4">
       <h2 className="mb-1 font-semibold">ประวัติที่ต้องตรวจสอบ</h2>
-      <p className="mb-3 text-sm text-stone-500">ยกเลิกบิล/รายการ, ส่วนลด, ราคาขายออฟไลน์ไม่ตรง, ของเสีย, แก้สูตร — พร้อมผู้ดำเนินการ</p>
+      <p className="mb-3 text-sm text-stone-500">ยกเลิกบิล/รายการ, ส่วนลด, ราคาขายออฟไลน์ไม่ตรง, ของเสีย, แก้สูตร, รายการที่ลูกค้าสั่งผ่าน QR, เงิน PromptPay เข้าแต่จับคู่บิลไม่ได้ (แถบแดง — ต้องตรวจ/คืนเงิน) — พร้อมผู้ดำเนินการ</p>
       {q.isLoading ? (
         <Empty>กำลังโหลด…</Empty>
       ) : !q.data?.length ? (
@@ -192,13 +195,13 @@ function AuditList({ date }: { date: string }) {
       ) : (
         <ul className="divide-y divide-stone-100 text-sm">
           {q.data.map((a) => (
-            <li key={a.id} className="flex flex-wrap gap-x-3 gap-y-0.5 py-2">
+            <li key={a.id} className={`flex flex-wrap gap-x-3 gap-y-0.5 py-2 ${a.action === 'payment.review' ? 'rounded-lg bg-red-50 px-2' : ''}`}>
               <span className="w-12 shrink-0 text-stone-500 tabular">
                 {new Date(a.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
               </span>
               <span className="font-medium">{a.label}</span>
               <span className="min-w-0 flex-1 text-stone-600">{describe(a)}</span>
-              <span className="text-stone-500">{a.userName ?? '—'}</span>
+              <span className="text-stone-500">{a.userName ?? 'ระบบ'}</span>
             </li>
           ))}
         </ul>

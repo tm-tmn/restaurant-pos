@@ -8,7 +8,7 @@ import { MoneyErrorFilter } from './common/money.filter';
 import helmet from 'helmet';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true }); // rawBody: ใช้ตรวจลายเซ็น webhook
   // ชุดซิงค์ที่ DTO ยอมรับได้สูงสุด (50 บิล × 100 รายการ ข้อความไทยเต็มความยาว) ≈ 7MB — ค่าเริ่มต้น 100kb ไม่พอ
   // ฝั่งเครื่อง POS ยังแบ่งชุดเองเมื่อเจอ 413 อีกชั้น
   app.useBodyParser('json', { limit: '8mb' });

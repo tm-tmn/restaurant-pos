@@ -1,6 +1,7 @@
-import { BarChart3, Clock, CloudOff, LayoutGrid, LogOut, Package, RefreshCw, Settings, ShoppingCart, type LucideIcon } from 'lucide-react';
+import { BarChart3, ChefHat, Clock, CloudOff, LayoutGrid, ListOrdered, LogOut, Package, RefreshCw, Settings, ShoppingCart, type LucideIcon } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useOnline } from '../hooks/useOnline';
+import { usePending } from '../hooks/usePending';
 import { flushQueue, useSync } from '../lib/offline';
 import { isManager, useAuth } from '../store/auth';
 import { useCart } from '../store/cart';
@@ -15,6 +16,8 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/', label: 'ขาย', icon: ShoppingCart },
   { to: '/tables', label: 'โต๊ะ', icon: LayoutGrid },
+  { to: '/kitchen', label: 'ครัว', icon: ChefHat },
+  { to: '/queue', label: 'คิว', icon: ListOrdered },
   { to: '/shift', label: 'กะ', icon: Clock },
   { to: '/inventory', label: 'คลัง', icon: Package, manager: true },
   { to: '/reports', label: 'รายงาน', icon: BarChart3, manager: true },
@@ -24,8 +27,9 @@ const NAV: NavItem[] = [
 export function Layout() {
   const { user, branch, logout } = useAuth();
   const online = useOnline();
-  const { pending, failed, syncing } = useSync();
+  const { pending: queued, failed, syncing } = useSync();
   const nav = useNavigate();
+  const pending = usePending();
   // ออกจากระบบเอง → ล้างตะกร้า ไม่ให้รายการค้างไปถึงพนักงานคนถัดไป (คิวบิลออฟไลน์ยังเก็บไว้ส่งต่อ)
   const signOut = () => {
     useCart.getState().clear();
@@ -50,7 +54,10 @@ export function Layout() {
               )
             }
           >
-            <n.icon size={22} />
+            <span className="relative">
+              <n.icon size={22} />
+              {n.to === '/tables' && pending.count > 0 && <Dot n={pending.count} />}
+            </span>
             {n.label}
           </NavLink>
         ))}
@@ -71,7 +78,12 @@ export function Layout() {
           <div className="min-w-0 truncate font-semibold">{branch?.name}</div>
           <div className="truncate text-sm text-stone-500">· {user?.name}</div>
           <div className="ml-auto flex items-center gap-2">
-            {(pending > 0 || failed > 0) && (
+            {pending.count > 0 && (
+              <button onClick={() => nav('/tables')} className="shrink-0 whitespace-nowrap rounded-full bg-amber-500 px-3 py-1 text-xs font-semibold text-white">
+                QR รอยืนยัน {pending.count}
+              </button>
+            )}
+            {(queued > 0 || failed > 0) && (
               <button
                 onClick={() => (failed > 0 ? nav('/sync') : void flushQueue())}
                 className={cn(
@@ -80,7 +92,7 @@ export function Layout() {
                 )}
               >
                 <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-                {failed > 0 ? `ต้องตรวจสอบ ${failed}` : `รอส่ง ${pending} บิล`}
+                {failed > 0 ? `ต้องตรวจสอบ ${failed}` : `รอส่ง ${queued} บิล`}
               </button>
             )}
             <span
@@ -118,12 +130,23 @@ export function Layout() {
               end={n.to === '/'}
               className={({ isActive }) => cn('flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px]', isActive ? 'text-brand-700' : 'text-stone-500')}
             >
-              <n.icon size={20} />
+              <span className="relative">
+                <n.icon size={20} />
+                {n.to === '/tables' && pending.count > 0 && <Dot n={pending.count} />}
+              </span>
               {n.label}
             </NavLink>
           ))}
         </nav>
       </div>
     </div>
+  );
+}
+
+function Dot({ n }: { n: number }) {
+  return (
+    <span className="absolute -right-2 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white" aria-label={`รอยืนยัน ${n} รายการ`}>
+      {n}
+    </span>
   );
 }

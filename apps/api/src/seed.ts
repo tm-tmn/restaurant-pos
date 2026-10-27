@@ -38,7 +38,7 @@ async function main() {
 
   const tables = ds.getRepository(DiningTable);
   if ((await tables.count({ where: { branchId: branch.id } })) === 0) {
-    await tables.save(Array.from({ length: 8 }, (_, i) => ({ branchId: branch.id, name: `T${i + 1}`, seats: 4 })));
+    await tables.save(Array.from({ length: 8 }, (_, i) => tables.create({ branchId: branch.id, name: `T${i + 1}`, seats: 4 })));
   }
 
   const cats = ds.getRepository(Category);
