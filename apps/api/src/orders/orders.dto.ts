@@ -15,6 +15,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { MAX_BILL_SATANG, MAX_UNIT_PRICE_SATANG } from '../common/money';
 import type { OrderType, PaymentMethod } from '../entities';
 
 export class ItemInputDto {
@@ -40,13 +41,13 @@ export class AddItemsDto {
 
 export class PaymentDto {
   @IsIn(['cash', 'promptpay', 'card']) method: PaymentMethod;
-  @IsInt() @Min(1) amountSatang: number;
-  @IsOptional() @IsInt() @Min(0) receivedSatang?: number;
+  @IsInt() @Min(1) @Max(MAX_BILL_SATANG) amountSatang: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_BILL_SATANG) receivedSatang?: number;
   @IsOptional() @IsString() @MaxLength(100) reference?: string;
 }
 
 export class PayOrderDto {
-  @IsOptional() @IsInt() @Min(0) discountSatang?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_BILL_SATANG) discountSatang?: number;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(5) @ValidateNested({ each: true }) @Type(() => PaymentDto)
   payments: PaymentDto[];
 }
@@ -59,7 +60,7 @@ export class VoidDto {
 export class SyncItemDto {
   @IsOptional() @IsUUID() productId?: string;
   @IsString() @MinLength(1) @MaxLength(200) name: string;
-  @IsInt() @Min(0) unitPriceSatang: number;
+  @IsInt() @Min(0) @Max(MAX_UNIT_PRICE_SATANG) unitPriceSatang: number;
   @IsInt() @Min(1) @Max(99) qty: number;
   @IsOptional() @IsString() @MaxLength(200) note?: string;
 }
@@ -70,7 +71,7 @@ export class SyncOrderDto {
   @IsOptional() @IsString() @MaxLength(200) note?: string;
   /** เวลาที่ขายจริงบนเครื่อง POS */
   @IsDateString() occurredAt: string;
-  @IsOptional() @IsInt() @Min(0) discountSatang?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_BILL_SATANG) discountSatang?: number;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => SyncItemDto)
   items: SyncItemDto[];
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(5) @ValidateNested({ each: true }) @Type(() => PaymentDto)

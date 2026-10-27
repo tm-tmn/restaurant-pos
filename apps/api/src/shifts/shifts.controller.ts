@@ -1,14 +1,14 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
-import { IsInt, Min } from 'class-validator';
+import { IsInt, Max, Min } from 'class-validator';
 import { CurrentUser } from '../auth/auth.guard';
 import { AuthUser } from '../auth/auth.types';
 import { ShiftsService } from './shifts.service';
 
 class OpenShiftDto {
-  @IsInt() @Min(0) openingCashSatang: number;
+  @IsInt() @Min(0) @Max(100_000_000) openingCashSatang: number;
 }
 class CloseShiftDto {
-  @IsInt() @Min(0) closingCashSatang: number;
+  @IsInt() @Min(0) @Max(1_000_000_000) closingCashSatang: number;
 }
 
 @Controller('shifts')

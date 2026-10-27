@@ -4,10 +4,13 @@ import { DataSource, EntityManager, In, QueryFailedError } from 'typeorm';
 import { AuthUser } from '../auth/auth.types';
 import { calcTotals, settlePayments } from '../common/money';
 import { AuditLog, Branch, DiningTable, Order, OrderItem, Payment, Product } from '../entities';
+import { InventoryService } from '../inventory/inventory.service';
 import { ShiftsService } from '../shifts/shifts.service';
 import { AddItemsDto, CreateOrderDto, ItemInputDto, PayOrderDto, SyncOrderDto } from './orders.dto';
 
 const PG_UNIQUE_VIOLATION = '23505';
+/** บิลออฟไลน์ที่ส่งเข้ามาช้ากว่านี้จะถูกปฏิเสธ (ไปอยู่ในกอง "ต้องตรวจสอบ" ที่เครื่อง) */
+const MAX_OFFLINE_AGE_MS = 7 * 24 * 3600_000;
 
 function isUniqueViolation(e: unknown, constraintHint?: string) {
   if (!(e instanceof QueryFailedError)) return false;
@@ -24,6 +27,7 @@ export class OrdersService {
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
     private readonly shifts: ShiftsService,
+    private readonly inventory: InventoryService,
   ) {}
 
   // ---------- helpers ----------
@@ -206,6 +210,8 @@ export class OrdersService {
       order.paidAt = now;
       order.shiftId = (await this.shifts.findForTime(em, u.branchId, now))?.id ?? null;
       await em.save(order);
+      // หักวัตถุดิบตามสูตร ในทรานแซกชันเดียวกับการชำระ (สำเร็จทั้งคู่หรือไม่เกิดทั้งคู่)
+      await this.inventory.deductForSale(em, u.branchId, order.id, items);
       if (totals.discount > 0) {
         await this.audit(em, u, 'order.discount', 'order', order.id, { orderNo: order.orderNo, discountSatang: totals.discount });
       }
@@ -247,6 +253,10 @@ export class OrdersService {
       const occurredAt = new Date(dto.occurredAt);
       const now = new Date();
       if (Number.isNaN(occurredAt.getTime())) throw new BadRequestException('occurredAt ไม่ถูกต้อง');
+      // กันบิลย้อนหลังผิดปกติ (นาฬิกาเครื่องผิด หรือแก้เวลาเพื่อลงบิลในวันที่ปิดยอดไปแล้ว)
+      if (now.getTime() - occurredAt.getTime() > MAX_OFFLINE_AGE_MS) {
+        throw new BadRequestException('บิลเก่าเกิน 7 วัน — ตรวจสอบเวลาเครื่อง POS แล้วให้ผู้จัดการบันทึกด้วยตนเอง');
+      }
       // นาฬิกาเครื่องเดินเร็วเกินไป → ใช้เวลาเซิร์ฟเวอร์แทน (กันบิลล่วงหน้า)
       const at = occurredAt.getTime() > now.getTime() + 5 * 60_000 ? now : occurredAt;
 
@@ -293,6 +303,12 @@ export class OrdersService {
         ),
       );
       await em.save(settled.map((p) => em.create(Payment, { ...p, reference: p.reference ?? null, orderId: order.id })));
+      await this.inventory.deductForSale(
+        em,
+        u.branchId,
+        order.id,
+        dto.items.map((i) => ({ productId: i.productId && priceById.has(i.productId) ? i.productId : null, qty: i.qty })),
+      );
 
       const mismatches = dto.items.filter((i) => i.productId && priceById.has(i.productId) && priceById.get(i.productId) !== i.unitPriceSatang);
       if (mismatches.length) {

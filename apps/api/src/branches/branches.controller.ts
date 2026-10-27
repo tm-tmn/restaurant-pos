@@ -1,6 +1,6 @@
-import { BadRequestException, Body, Controller, Patch } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Patch, Post } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { Repository } from 'typeorm';
 import { CurrentUser } from '../auth/auth.guard';
 import { AuthUser, Roles } from '../auth/auth.types';
@@ -11,10 +11,30 @@ class UpdateBranchDto {
   /** เบอร์โทร 10 หลัก (ขึ้นต้น 0) หรือเลขบัตรประชาชน/เลขผู้เสียภาษี 13 หลัก; ส่งสตริงว่างเพื่อล้างค่า */
   @IsOptional() @IsString() promptpayId?: string;
 }
+class CreateBranchDto {
+  @IsString() @Matches(/^[A-Z0-9]{2,10}$/, { message: 'รหัสสาขาใช้ A-Z, 0-9 ยาว 2-10 ตัว' }) code: string;
+  @IsString() @MinLength(1) @MaxLength(100) name: string;
+}
+
+const view = (b: Branch) => ({ id: b.id, code: b.code, name: b.name, promptpayId: b.promptpayId });
 
 @Controller('branches')
 export class BranchesController {
   constructor(@InjectRepository(Branch) private readonly branches: Repository<Branch>) {}
+
+  /** รายชื่อสาขา (ใช้เลือกปลายทางการโอนสต็อก) */
+  @Roles('manager')
+  @Get()
+  async list() {
+    return (await this.branches.find({ order: { code: 'ASC' } })).map((b) => ({ id: b.id, code: b.code, name: b.name }));
+  }
+
+  @Roles('owner')
+  @Post()
+  async create(@Body() dto: CreateBranchDto) {
+    if (await this.branches.existsBy({ code: dto.code })) throw new BadRequestException('มีรหัสสาขานี้แล้ว');
+    return view(await this.branches.save(this.branches.create({ code: dto.code, name: dto.name, promptpayId: null })));
+  }
 
   @Roles('manager')
   @Patch('me')
@@ -28,7 +48,6 @@ export class BranchesController {
       }
       b.promptpayId = id === '' ? null : id;
     }
-    const saved = await this.branches.save(b);
-    return { id: saved.id, code: saved.code, name: saved.name, promptpayId: saved.promptpayId };
+    return view(await this.branches.save(b));
   }
 }

@@ -34,7 +34,13 @@ export class ShiftsService {
 
   async open(u: AuthUser, openingCashSatang: number) {
     if (await this.findOpen(u.branchId)) throw new ConflictException('มีกะที่เปิดอยู่แล้ว');
-    return this.shifts.save(this.shifts.create({ branchId: u.branchId, openedBy: u.id, openingCashSatang }));
+    try {
+      return await this.shifts.save(this.shifts.create({ branchId: u.branchId, openedBy: u.id, openingCashSatang }));
+    } catch (e) {
+      // เปิดพร้อมกันจากหลายเครื่อง — unique index กันไว้ที่ฐานข้อมูล
+      if ((e as { driverError?: { code?: string } }).driverError?.code === '23505') throw new ConflictException('มีกะที่เปิดอยู่แล้ว');
+      throw e;
+    }
   }
 
   async close(u: AuthUser, closingCashSatang: number) {

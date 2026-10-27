@@ -24,7 +24,10 @@ export function ReportsPage() {
       ) : r.isError ? (
         <Empty>{(r.error as Error).message}</Empty>
       ) : (
-        <Body d={r.data!} />
+        <>
+          <Body d={r.data!} />
+          <AuditList date={date} />
+        </>
       )}
     </div>
   );
@@ -44,8 +47,19 @@ function Body({ d }: { d: DailyReport }) {
         <Stat label="ยอดขายสุทธิ" value={baht(d.salesSatang)} big />
         <Stat label="จำนวนบิล" value={d.orders.toLocaleString('th-TH')} />
         <Stat label="เฉลี่ยต่อบิล" value={baht(d.avgOrderSatang)} />
-        <Stat label="ส่วนลด / ยกเลิก" value={`${baht(d.discountSatang)} · ${d.voidedOrders + d.voidedItems} ครั้ง`} />
+        <Stat label="ยกเลิกบิล / รายการ" value={`${d.voidedOrders} / ${d.voidedItems} ครั้ง`} />
       </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="ต้นทุนขาย (วัตถุดิบตามสูตร)" value={baht(d.cogsSatang)} />
+        <Stat
+          label="กำไรขั้นต้น"
+          value={`${baht(d.grossProfitSatang)}${d.salesSatang > 0 ? ` · ${Math.round((d.grossProfitSatang / d.salesSatang) * 100)}%` : ''}`}
+        />
+        <Stat label="มูลค่าของเสีย" value={baht(d.wasteSatang)} />
+        <Stat label="ส่วนลดรวม" value={baht(d.discountSatang)} />
+      </div>
+      <p className="-mt-2 text-xs text-stone-500">ต้นทุนขายนับเฉพาะเมนูที่มีสูตร — เมนูที่ยังไม่มีสูตรคิดต้นทุนเป็น 0</p>
 
       <Card className="p-4">
         <h2 className="mb-1 font-semibold">ยอดขายรายชั่วโมง</h2>
@@ -132,6 +146,63 @@ function Stat({ label, value, big }: { label: string; value: string; big?: boole
     <Card className="p-4">
       <div className="text-sm text-stone-500">{label}</div>
       <div className={`mt-1 font-semibold tabular ${big ? 'text-2xl text-brand-700' : 'text-xl'}`}>{value}</div>
+    </Card>
+  );
+}
+
+interface AuditRow {
+  id: string;
+  action: string;
+  label: string;
+  detail: Record<string, unknown> | null;
+  createdAt: string;
+  userName: string | null;
+}
+
+/** สรุปรายละเอียดเหตุการณ์ให้อ่านง่าย */
+function describe(a: AuditRow): string {
+  const d = a.detail ?? {};
+  const parts: string[] = [];
+  if (d.orderNo) parts.push(String(d.orderNo));
+  if (d.name) parts.push(`${d.qty ?? ''}× ${d.name}`);
+  if (typeof d.totalSatang === 'number') parts.push(baht(d.totalSatang));
+  if (typeof d.discountSatang === 'number') parts.push(`ส่วนลด ${baht(d.discountSatang)}`);
+  if (typeof d.valueSatang === 'number') parts.push(`มูลค่า ${baht(d.valueSatang)}`);
+  if (Array.isArray(d.items) && a.action === 'sync.price_mismatch') {
+    parts.push(
+      (d.items as { name: string; soldSatang: number; currentSatang: number }[])
+        .map((i) => `${i.name} ขาย ${baht(i.soldSatang)} (ปัจจุบัน ${baht(i.currentSatang)})`)
+        .join(', '),
+    );
+  }
+  if (d.reason) parts.push(`เหตุผล: ${d.reason}`);
+  return parts.join(' · ');
+}
+
+function AuditList({ date }: { date: string }) {
+  const q = useQuery({ queryKey: ['audit', date], queryFn: () => api<AuditRow[]>(`/reports/audit?date=${date}`) });
+  return (
+    <Card className="p-4">
+      <h2 className="mb-1 font-semibold">ประวัติที่ต้องตรวจสอบ</h2>
+      <p className="mb-3 text-sm text-stone-500">ยกเลิกบิล/รายการ, ส่วนลด, ราคาขายออฟไลน์ไม่ตรง, ของเสีย, แก้สูตร — พร้อมผู้ดำเนินการ</p>
+      {q.isLoading ? (
+        <Empty>กำลังโหลด…</Empty>
+      ) : !q.data?.length ? (
+        <Empty>ไม่มีรายการ</Empty>
+      ) : (
+        <ul className="divide-y divide-stone-100 text-sm">
+          {q.data.map((a) => (
+            <li key={a.id} className="flex flex-wrap gap-x-3 gap-y-0.5 py-2">
+              <span className="w-12 shrink-0 text-stone-500 tabular">
+                {new Date(a.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+              <span className="font-medium">{a.label}</span>
+              <span className="min-w-0 flex-1 text-stone-600">{describe(a)}</span>
+              <span className="text-stone-500">{a.userName ?? '—'}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }

@@ -8,6 +8,7 @@ interface AuthState {
   branch: Branch | null;
   setSession: (s: { token: string; user: SessionUser; branch: Branch }) => void;
   setBranch: (b: Branch) => void;
+  setUser: (u: SessionUser) => void;
   logout: () => void;
 }
 
@@ -19,6 +20,7 @@ export const useAuth = create<AuthState>()(
       branch: null,
       setSession: (s) => set(s),
       setBranch: (branch) => set({ branch }),
+      setUser: (user) => set({ user }),
       // ออกจากระบบไม่ลบคิวออเดอร์ offline (เก็บใน IndexedDB แยกต่างหาก) — ซิงค์ต่อหลังเข้าสู่ระบบใหม่
       logout: () => set({ token: null, user: null, branch: null }),
     }),

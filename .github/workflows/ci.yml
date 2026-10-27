@@ -20,7 +20,8 @@ jobs:
           --health-cmd "pg_isready -U pos" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgres://pos:pos@localhost:5432/pos
-      DB_SYNC: 'true'
+      # ทดสอบเส้นทางเดียวกับ production: สร้างตารางด้วย migration ไม่ใช่ synchronize
+      DB_SYNC: 'false'
       JWT_SECRET: ci-only-secret-0123456789abcdef
       PORT: '3000'
     steps:
@@ -32,9 +33,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npm run seed
+      - run: npm run seed  # รัน migration ก่อน seed
+      - name: Entities match migrations
+        run: npm run migration:check -w apps/api
       - name: API smoke test
         run: |
           node apps/api/dist/main.js &
           for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break; sleep 1; done
           API_URL=http://localhost:3000/api node apps/api/scripts/smoke.mjs
+          API_URL=http://localhost:3000/api node apps/api/scripts/edge.mjs

@@ -1,8 +1,9 @@
-import { BarChart3, Clock, CloudOff, LayoutGrid, LogOut, RefreshCw, Settings, ShoppingCart, type LucideIcon } from 'lucide-react';
+import { BarChart3, Clock, CloudOff, LayoutGrid, LogOut, Package, RefreshCw, Settings, ShoppingCart, type LucideIcon } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useOnline } from '../hooks/useOnline';
 import { flushQueue, useSync } from '../lib/offline';
 import { isManager, useAuth } from '../store/auth';
+import { useCart } from '../store/cart';
 import { cn } from './ui';
 
 interface NavItem {
@@ -15,6 +16,7 @@ const NAV: NavItem[] = [
   { to: '/', label: 'ขาย', icon: ShoppingCart },
   { to: '/tables', label: 'โต๊ะ', icon: LayoutGrid },
   { to: '/shift', label: 'กะ', icon: Clock },
+  { to: '/inventory', label: 'คลัง', icon: Package, manager: true },
   { to: '/reports', label: 'รายงาน', icon: BarChart3, manager: true },
   { to: '/manage', label: 'จัดการ', icon: Settings, manager: true },
 ];
@@ -24,6 +26,11 @@ export function Layout() {
   const online = useOnline();
   const { pending, failed, syncing } = useSync();
   const nav = useNavigate();
+  // ออกจากระบบเอง → ล้างตะกร้า ไม่ให้รายการค้างไปถึงพนักงานคนถัดไป (คิวบิลออฟไลน์ยังเก็บไว้ส่งต่อ)
+  const signOut = () => {
+    useCart.getState().clear();
+    logout();
+  };
   const items = NAV.filter((n) => !n.manager || isManager(user?.role));
 
   return (
@@ -49,7 +56,7 @@ export function Layout() {
         ))}
         <button
           onClick={() => {
-            logout();
+            signOut();
             nav('/login');
           }}
           className="mt-auto flex w-16 flex-col items-center gap-1 rounded-xl py-2.5 text-xs text-stone-400 hover:bg-stone-800 hover:text-white"
@@ -87,7 +94,7 @@ export function Layout() {
             </span>
             <button
               onClick={() => {
-                logout();
+                signOut();
                 nav('/login');
               }}
               className="rounded-lg p-1.5 text-stone-500 hover:bg-stone-100 md:hidden"

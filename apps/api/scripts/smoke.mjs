@@ -127,4 +127,101 @@ if (cur) {
   assert.ok(closed.expectedCashSatang >= 100000);
   ok(`ปิดกะ: เงินสดที่ควรมี ${(closed.expectedCashSatang / 100).toFixed(2)} บาท`);
 }
+// ================= Phase 2: Inventory & BOM =================
+token = cashierToken;
+await call('GET', '/inventory/levels', undefined, 403);
+ok('cashier เข้าคลังสินค้าไม่ได้');
+token = ownerToken;
+
+// วัตถุดิบ + สูตรของเมนูทดสอบ (สร้างใหม่ทุกครั้ง ไม่พึ่ง seed)
+const sfx = Date.now() % 1e6;
+const rice = await call('POST', '/inventory/ingredients', { name: `ข้าวทดสอบ${sfx}`, unit: 'g', reorderLevel: 500 }, 201);
+const pork = await call('POST', '/inventory/ingredients', { name: `หมูทดสอบ${sfx}`, unit: 'g', reorderLevel: 300 }, 201);
+await call('POST', '/inventory/ingredients', { name: `ข้าวทดสอบ${sfx}`, unit: 'g' }, 400);
+const dish = await call('POST', '/catalog/products', { name: `เมนูทดสอบสต็อก${sfx}`, priceSatang: 6000 }, 201);
+await call('PUT', `/inventory/recipes/${dish.id}`, { items: [{ ingredientId: rice.id, qty: 200 }, { ingredientId: pork.id, qty: 150 }] }, 200);
+await call('PUT', `/inventory/recipes/${dish.id}`, { items: [{ ingredientId: rice.id, qty: 1 }, { ingredientId: rice.id, qty: 2 }] }, 400);
+ok('สร้างวัตถุดิบ + สูตร (ซ้ำ → 400)');
+
+const level = async (id) => (await call('GET', '/inventory/levels')).find((l) => l.ingredientId === id);
+
+// รับเข้า 2 ล็อตราคาต่างกัน → ต้นทุนเฉลี่ย
+await call('POST', '/inventory/receive', {
+  supplier: 'ตลาดทดสอบ',
+  items: [
+    { ingredientId: rice.id, qty: 5000, totalCostSatang: 20000 }, // 4 สตางค์/กรัม
+    { ingredientId: pork.id, qty: 1000, totalCostSatang: 18000, expiryDate: new Date(Date.now() + 2 * 86400_000).toISOString().slice(0, 10) },
+  ],
+}, 201);
+await call('POST', '/inventory/receive', { items: [{ ingredientId: pork.id, qty: 1000, totalCostSatang: 22000 }] }, 201);
+let pl = await level(pork.id);
+assert.equal(pl.qty, 2000);
+assert.equal(pl.avgCostSatang, 20);
+ok('รับเข้า → ถัวเฉลี่ย 20 สตางค์/กรัม');
+
+const exp = await call('GET', '/inventory/expiring?days=7');
+assert.ok(exp.some((e) => e.ingredientId === pork.id));
+ok('รายการใกล้หมดอายุ');
+
+const cost = (await call('GET', '/inventory/costing')).find((c) => c.productId === dish.id);
+assert.equal(cost.costSatang, 200 * 4 + 150 * 20); // 3800
+assert.equal(cost.marginSatang, 6000 - 3800);
+ok(`ต้นทุนสูตร ${cost.costSatang / 100} บาท กำไรขั้นต้น ${cost.marginPct}%`);
+
+// ขายแบบโต๊ะ 2 จาน → หักวัตถุดิบตอนชำระ
+await call('POST', '/shifts/open', { openingCashSatang: 0 }, 201).catch(() => null);
+const t2 = (await call('GET', '/tables')).find((t) => !t.openOrder);
+const so = await call('POST', '/orders', { clientId: randomUUID(), type: 'dine_in', tableId: t2.id, items: [{ productId: dish.id, qty: 2 }] }, 201);
+assert.equal((await level(pork.id)).qty, 2000, 'ยังไม่หักจนกว่าจะชำระ');
+await call('POST', `/orders/${so.id}/pay`, { payments: [{ method: 'card', amountSatang: 12000 }] }, 200);
+pl = await level(pork.id);
+assert.equal(pl.qty, 1700);
+assert.equal((await level(rice.id)).qty, 4600);
+ok('ชำระบิลโต๊ะ → หักหมู 300g ข้าว 400g');
+
+// ขายออฟไลน์ (sync) 1 จาน → หักเช่นกัน, ส่งซ้ำไม่หักซ้ำ
+const so2 = {
+  clientId: randomUUID(),
+  type: 'takeaway',
+  occurredAt: new Date().toISOString(),
+  items: [{ productId: dish.id, name: dish.name, unitPriceSatang: 6000, qty: 1 }],
+  payments: [{ method: 'cash', amountSatang: 6000 }],
+};
+await call('POST', '/sync/orders', { orders: [so2] }, 200);
+await call('POST', '/sync/orders', { orders: [so2] }, 200);
+assert.equal((await level(pork.id)).qty, 1550);
+ok('sync ออฟไลน์หักวัตถุดิบ และส่งซ้ำไม่หักซ้ำ');
+
+// เบิก/ของเสีย: เกินคงเหลือ → 400, ปกติ → ตัดตามต้นทุนเฉลี่ย
+await call('POST', '/inventory/waste', { reason: 'ทดสอบ', items: [{ ingredientId: pork.id, qty: 999999 }] }, 400);
+const w = await call('POST', '/inventory/waste', { reason: 'หมดอายุ', items: [{ ingredientId: pork.id, qty: 50 }] }, 201);
+assert.equal(w.valueSatang, 1000);
+await call('POST', '/inventory/issue', { reason: 'ทำซอส', items: [{ ingredientId: rice.id, qty: 100 }] }, 201);
+assert.equal((await level(pork.id)).qty, 1500);
+ok('ของเสีย 50g = 10 บาท, เบิกใช้, เกินสต็อก → 400');
+
+// โอนไปอีกสาขา
+const br2 = await call('POST', '/branches', { code: `B${sfx % 100000}`, name: 'สาขาทดสอบโอน' }, 201);
+await call('POST', '/inventory/transfer', { toBranchId: br2.id, items: [{ ingredientId: pork.id, qty: 500 }] }, 201);
+await call('POST', '/inventory/transfer', { toBranchId: login.branch.id, items: [{ ingredientId: pork.id, qty: 1 }] }, 400);
+assert.equal((await level(pork.id)).qty, 1000);
+ok('โอนสต็อกไปสาขาอื่น (โอนให้ตัวเอง → 400)');
+
+// ตรวจนับ: นับได้ 950 → ปรับ -50
+const c = await call('POST', '/inventory/counts', { note: 'นับสิ้นวัน', lines: [{ ingredientId: pork.id, countedQty: 950 }, { ingredientId: rice.id, countedQty: (await level(rice.id)).qty }] }, 201);
+assert.equal(c.linesAdjusted, 1);
+assert.equal((await level(pork.id)).qty, 950);
+ok(`ตรวจนับ: ปรับ ${c.linesAdjusted} รายการ มูลค่า ${c.valueDeltaSatang / 100} บาท`);
+
+const mv = await call('GET', `/inventory/movements?ingredientId=${pork.id}`);
+const types = new Set(mv.map((m) => m.type));
+for (const t of ['receive', 'sale', 'waste', 'transfer_out', 'adjust']) assert.ok(types.has(t), `ไม่มี movement ${t}`);
+assert.equal(mv[0].balanceQty, 950);
+ok('ประวัติการเคลื่อนไหวครบทุกประเภท');
+
+const rep2 = await call('GET', '/reports/daily');
+assert.ok(rep2.cogsSatang >= 3 * 3800);
+assert.ok(rep2.wasteSatang >= 1000);
+ok(`รายงาน: ต้นทุนขาย ${rep2.cogsSatang / 100} บาท, กำไรขั้นต้น ${rep2.grossProfitSatang / 100} บาท`);
+
 console.log('\nSMOKE TEST PASSED');

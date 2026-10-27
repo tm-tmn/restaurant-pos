@@ -45,7 +45,7 @@ export function OrderPage() {
     setReceipt({
       orderNo: next.orderNo,
       branchName: branch?.name ?? '',
-      at: new Date(),
+      at: next.paidAt ? new Date(next.paidAt) : new Date(),
       cashier: user?.name ?? '',
       lines: next.items.filter((i) => i.status === 'active').map((i) => ({ name: i.nameSnapshot, qty: i.qty, unitPriceSatang: i.unitPriceSatang })),
       subtotalSatang: next.subtotalSatang,
@@ -156,7 +156,7 @@ export function OrderPage() {
                 setReceipt({
                   orderNo: o.orderNo,
                   branchName: branch?.name ?? '',
-                  at: new Date(),
+                  at: o.paidAt ? new Date(o.paidAt) : new Date(),
                   cashier: user?.name ?? '',
                   lines: active.map((i) => ({ name: i.nameSnapshot, qty: i.qty, unitPriceSatang: i.unitPriceSatang })),
                   subtotalSatang: o.subtotalSatang,
