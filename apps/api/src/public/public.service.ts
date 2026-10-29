@@ -2,6 +2,7 @@ import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundExc
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { RateLimiter } from '../common/rate-limit';
+import { runAsSystem, runAsTenant } from '../common/tenant-context';
 import { Branch, Category, DiningTable, Order, OrderItem, Product } from '../entities';
 import { OrdersService } from '../orders/orders.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -28,6 +29,8 @@ export class PublicService {
   private readonly payTable = new RateLimiter(10, 10 * 60_000);
   private readonly queueIp = new RateLimiter(6, 10 * 60_000);
   private readonly queueBranch = new RateLimiter(120, 10 * 60_000);
+  /** ค้นว่าโทเค็น/รหัสร้านเป็นของร้านไหน (ก่อนเข้าบริบทร้าน) */
+  private readonly lookupIp = new RateLimiter(600, 60_000);
 
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
@@ -35,6 +38,49 @@ export class PublicService {
     private readonly payments: PaymentsService,
     private readonly queue: QueueService,
   ) {}
+
+  // ---------- แปลงโทเค็นสาธารณะ → ร้าน ----------
+  // ลูกค้าไม่ได้ล็อกอิน จึงต้องหาว่าโทเค็นเป็นของร้านไหนก่อน (โหมด system อ่านอย่างเดียว คืนแค่ tenantId)
+  // แล้วทำงานที่เหลือทั้งหมดในบริบทของร้านนั้น — RLS กันไม่ให้เห็นข้อมูลร้านอื่นแม้โค้ดส่วนถัดไปจะพลาด
+
+  private async resolveTenant(ip: string, sql: string, params: unknown[], notFound: string): Promise<string> {
+    if (!this.lookupIp.take(ip)) throw tooMany();
+    const rows: { tenantId: string }[] = await runAsSystem(() => this.ds.query(sql, params));
+    if (!rows[0]) throw new NotFoundException(notFound);
+    return rows[0].tenantId;
+  }
+
+  /** งานของหน้าโต๊ะ (QR ประจำโต๊ะ) */
+  async forTable<T>(token: string, ip: string, fn: () => Promise<T>): Promise<T> {
+    const msg = 'ไม่พบโต๊ะ — QR อาจหมดอายุ กรุณาเรียกพนักงาน';
+    if (!TOKEN_RE.test(token)) throw new NotFoundException(msg);
+    const tid = await this.resolveTenant(
+      ip,
+      `SELECT d."tenantId" FROM dining_tables d JOIN tenants t ON t.id = d."tenantId" WHERE d."qrToken" = $1 AND t.status = 'active'`,
+      [token],
+      msg,
+    );
+    return runAsTenant(tid, fn);
+  }
+
+  /** งานของบัตรคิว (ลิงก์ที่ลูกค้าได้หลังกดรับคิว) */
+  async forQueueTicket<T>(token: string, ip: string, fn: () => Promise<T>): Promise<T> {
+    if (!TOKEN_RE.test(token)) throw new NotFoundException('ไม่พบคิว');
+    const tid = await this.resolveTenant(
+      ip,
+      `SELECT q."tenantId" FROM queue_tickets q JOIN tenants t ON t.id = q."tenantId" WHERE q.token = $1 AND t.status = 'active'`,
+      [token],
+      'ไม่พบคิว',
+    );
+    return runAsTenant(tid, fn);
+  }
+
+  /** งานของหน้าคิวหน้าร้าน (/q/<รหัสร้าน>/<รหัสสาขา>) */
+  async forShop<T>(slug: string, ip: string, fn: () => Promise<T>): Promise<T> {
+    if (!/^[a-z0-9][a-z0-9-]{1,30}$/.test(slug)) throw new NotFoundException('ไม่พบสาขา');
+    const tid = await this.resolveTenant(ip, `SELECT id AS "tenantId" FROM tenants WHERE slug = $1 AND status = 'active'`, [slug], 'ไม่พบสาขา');
+    return runAsTenant(tid, fn);
+  }
 
   private async tableByToken(token: string) {
     if (!TOKEN_RE.test(token)) throw new NotFoundException('ไม่พบโต๊ะ — QR อาจหมดอายุ กรุณาเรียกพนักงาน');
@@ -179,8 +225,9 @@ export class PublicService {
   }
 
   async joinQueue(code: string, ip: string, dto: { partySize: number; name?: string; phone?: string }) {
-    if (!this.queueIp.take(ip) || !this.queueBranch.take(code)) throw tooMany();
+    if (!this.queueIp.take(ip)) throw tooMany();
     const b = await this.branchByCode(code);
+    if (!this.queueBranch.take(b.id)) throw tooMany();
     const t = await this.queue.add(b.id, { partySize: dto.partySize, name: dto.name, phone: dto.phone, source: 'customer' });
     return { token: t.token, code: t.code };
   }

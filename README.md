@@ -1,7 +1,7 @@
 # Restaurant POS
 
-ระบบ POS สำหรับร้านอาหาร — **Phase 1: Core POS ✅ · Phase 2: Inventory & BOM ✅ · Phase 3: QR / ครัว / คิว / จ่ายอัตโนมัติ ✅**
-React PWA (ใช้งานต่อได้เมื่ออินเทอร์เน็ตขัดข้อง) + NestJS API + PostgreSQL
+ระบบ POS สำหรับร้านอาหาร — **Phase 1: Core POS ✅ · Phase 2: Inventory & BOM ✅ · Phase 3: QR / ครัว / คิว / จ่ายอัตโนมัติ ✅ · A: หลายร้าน + real-time + Railway ✅**
+React PWA (ใช้งานต่อได้เมื่ออินเทอร์เน็ตขัดข้อง) + NestJS API + PostgreSQL — ระบบเดียวให้บริการได้หลายร้าน (SaaS)
 
 > ขอบเขตปัจจุบันยังไม่รวมการเชื่อมต่อ GrabFood / Delivery (ตัดออกตามแผน)
 
@@ -51,6 +51,34 @@ React PWA (ใช้งานต่อได้เมื่ออินเทอ
 **โหมดการชำระเงิน (`PAYMENT_PROVIDER`):** `none` = พนักงานกดยืนยันเอง (ค่าเริ่มต้น) · `webhook` = รับแจ้งจาก gateway · `mock` = จำลองเพื่อพัฒนา/สาธิต (ห้ามใช้ production)
 > ⚠️ สัญญา webhook เป็นแบบกลางของระบบนี้ (`POST /api/payments/webhook` — ดู docs/ARCHITECTURE.md) ยังไม่ได้ผูกกับผู้ให้บริการรายใดโดยเฉพาะ (Omise, 2C2P, SCB, KBank ฯลฯ) — ต้องเขียน adapter แปลงรูปแบบของผู้ให้บริการที่เลือก และทดสอบกับ sandbox จริงก่อนใช้งาน
 
+## หลายร้าน (multi-tenant) และ real-time
+
+- **หลายร้านในฐานข้อมูลเดียว** ทุกตารางมี `tenantId` และ PostgreSQL บังคับเองด้วย Row-Level Security — แอปทำงานในนาม role `pos_app`
+  ที่มองเห็นได้เฉพาะแถวของร้านที่ล็อกอิน ต่อให้โค้ดลืมกรองก็อ่าน/เขียนข้อมูลร้านอื่นไม่ได้ และมี trigger กันการอ้างอิง id ของร้านอื่น
+- **ล็อกอินด้วย รหัสร้าน + ชื่อผู้ใช้ + รหัสผ่าน** (เครื่องจำรหัสร้านล่าสุดไว้ให้) ชื่อผู้ใช้/รหัสสาขา/บาร์โค้ดซ้ำกันได้คนละร้าน
+- ลิงก์คิวหน้าร้านเป็น `/q/<รหัสร้าน>/<รหัสสาขา>` และจอเรียกคิว `/board/<รหัสร้าน>/<รหัสสาขา>`; QR โต๊ะใช้โทเค็นเดิม
+- **สร้างร้านใหม่** (ผู้ดูแลระบบ): `npm run tenant:create -w apps/api -- --slug somtam-pa --name "ส้มตำป้า" --password 'รหัสผ่านเจ้าของร้าน'`
+  (ตอนพัฒนาใช้ `tenant:create:dev`) ได้สาขา MAIN, ผู้ใช้ `owner` และโต๊ะ 8 ตัว — รันซ้ำได้
+- **อัปเกรดจากรุ่นก่อน**: migration ย้ายข้อมูลเดิมทั้งหมดไปอยู่ใต้ร้านรหัส `main` (เปลี่ยนได้ด้วย `DEFAULT_TENANT_SLUG` ก่อนรันครั้งแรก)
+  ทุกคนต้องล็อกอินใหม่หนึ่งครั้งโดยใส่รหัสร้าน `main`
+- **ครัว/บิล/คิว real-time**: ฐานข้อมูลส่ง NOTIFY เมื่อข้อมูลเปลี่ยน → API กระจายผ่าน WebSocket (`/socket.io`) ให้เครื่องในสาขานั้น
+  โหลดใหม่ทันที (ส่งแค่สัญญาณ ไม่ส่งข้อมูล) ถ้าต่อไม่ได้หน้าจอยังโหลดเองเป็นระยะเหมือนเดิม จุดสีเขียวที่มุมขวาบน = real-time
+  ต้องต่อฐานข้อมูลแบบ session (ตรง หรือ Supabase Session pooler) — Transaction pooler (พอร์ต 6543) ใช้ไม่ได้
+
+## Deploy บน Railway
+
+บริการเดียวรวม API + หน้าเว็บ (ไฟล์ `Dockerfile` และ `railway.json` ที่ root)
+
+1. Railway → New Project → Deploy from GitHub repo → เลือก repo นี้ (Railway ใช้ `Dockerfile` อัตโนมัติ)
+2. เพิ่ม PostgreSQL ในโปรเจกต์เดียวกัน (หรือใช้ Supabase ต่อ)
+3. ตั้ง Variables ของบริการ: `DATABASE_URL` (อ้างอิงจาก Postgres ของ Railway ได้), `JWT_SECRET` (สุ่มใหม่), `TRUST_PROXY=1`,
+   `CORS_ORIGINS=https://<โดเมนของบริการ>` และ `PAYMENT_PROVIDER` ตามต้องการ
+4. Deploy — แอปรัน migration เองตอนเริ่ม ตรวจสุขภาพที่ `/api/health`
+5. สร้างร้านแรก: `railway run npm run tenant:create -w apps/api -- --slug <รหัสร้าน> --name "<ชื่อร้าน>" --password '<รหัสผ่าน>'`
+   หรือรันคำสั่งเดียวกันจากเครื่องตัวเองโดยตั้ง `DATABASE_URL` เป็นของ Railway
+
+ตอนนี้ตั้งไว้ 1 instance — ตัวจำกัดอัตรา/กันเดารหัสผ่านยังเก็บในหน่วยความจำ (real-time รองรับหลาย instance แล้ว)
+
 ## โครงสร้าง
 
 ```
@@ -86,12 +114,12 @@ npm install
 npm run db:up                         # PostgreSQL + Redis
 cp apps/api/.env.example apps/api/.env
 # แก้ JWT_SECRET ใน apps/api/.env เป็นสตริงสุ่มยาว ≥ 24 ตัว เช่น: openssl rand -hex 32
-npm run seed                          # สาขา MAIN, ผู้ใช้ owner, โต๊ะ T1–T8, เมนู + วัตถุดิบ + สูตรตัวอย่าง
+npm run seed                          # ร้าน main: สาขา MAIN, ผู้ใช้ owner, โต๊ะ T1–T8, เมนู + วัตถุดิบ + สูตรตัวอย่าง
 npm run dev:api                       # http://localhost:3000/api
 npm run dev:web                       # http://localhost:5173
 ```
 
-เข้าสู่ระบบด้วย `owner` / `ChangeMe!2026` (หรือค่าที่ตั้งใน `SEED_OWNER_PASSWORD`) แล้ว **เปลี่ยนรหัสผ่านทันที** ที่ จัดการ → พนักงาน
+เข้าสู่ระบบด้วยรหัสร้าน `main`, ผู้ใช้ `owner` / `ChangeMe!2026` (หรือค่าที่ตั้งใน `SEED_OWNER_PASSWORD`) แล้ว **เปลี่ยนรหัสผ่านทันที** ที่ จัดการ → พนักงาน
 จากนั้นตั้ง PromptPay ID ที่ จัดการ → ตั้งค่าร้าน และเปิดกะที่เมนู "กะ" ก่อนเริ่มขาย
 ถ้าจะใช้ระบบสต็อก ให้ "รับเข้า" วัตถุดิบตั้งต้นที่เมนู คลัง → รับเข้า (หรือ ตรวจนับ ครั้งแรก) เพื่อให้มียอดคงเหลือและต้นทุน
 
@@ -101,11 +129,14 @@ npm run dev:web                       # http://localhost:5173
 npm test                              # unit test: เงิน, ต้นทุนสต็อก, กันเดารหัส (api) · PromptPay, หน่วย, คิวออฟไลน์ (web)
 # smoke test API (ต้องรัน API + seed แล้ว; สร้างข้อมูลทดสอบลง DB — ห้ามใช้กับ production)
 API_URL=http://localhost:3000/api node apps/api/scripts/smoke.mjs
+# แยกร้าน + real-time (ต้อง build API แล้ว และตั้ง DATABASE_URL — สร้างร้านทดสอบเอง)
+DATABASE_URL=... API_URL=http://localhost:3000/api node apps/api/scripts/tenants.mjs
+DATABASE_URL=... API_URL=http://localhost:3000/api node apps/api/scripts/realtime.mjs
 ```
 
 ## ฐานข้อมูลและ migration
 
-แอปรัน migration ที่ค้างให้อัตโนมัติตอนเริ่ม (เมื่อ `DB_SYNC=false` ซึ่งเป็นค่าแนะนำ)
+แอปรัน migration ที่ค้างให้อัตโนมัติตอนเริ่ม (`DB_SYNC=true` เลิกใช้แล้ว — Row-Level Security/role/trigger สร้างได้ด้วย migration เท่านั้น)
 
 ```bash
 # แก้ entity แล้วสร้าง migration ใหม่ (ต่อกับฐานข้อมูลที่ migrate ล่าสุดแล้ว)
@@ -114,7 +145,8 @@ npm run migration:run -w apps/api       # รันเอง (ปกติแอ
 npm run migration:check -w apps/api     # ตรวจว่า entity กับ migration ตรงกัน (CI รันทุกครั้ง)
 ```
 
-> ฐานข้อมูลพัฒนาที่เคยสร้างด้วย `DB_SYNC=true` ให้สร้างใหม่ หรือคง `DB_SYNC=true` ต่อเฉพาะเครื่องพัฒนา
+> ฐานข้อมูลพัฒนาที่เคยสร้างด้วย `DB_SYNC=true` ให้สร้างใหม่
+> ผู้ใช้ที่ต่อฐานข้อมูลต้องสร้าง role ได้ (Railway/Supabase/Docker ใช้ได้ตามค่าเริ่มต้น) เพราะ migration สร้าง role `pos_app`
 
 ## ความปลอดภัย
 
@@ -126,19 +158,23 @@ npm run migration:check -w apps/api     # ตรวจว่า entity กับ
 
 ## ก่อนขึ้น Production
 
-- ใช้ `DB_SYNC=false` (migration) — ห้ามเปิด `DB_SYNC=true` กับฐานข้อมูลจริง
+- ห้ามใส่ค่าจริง (รหัสผ่าน, `JWT_SECRET`) ใน `.env.example` หรือไฟล์ใดที่ขึ้น GitHub — repo นี้เป็นสาธารณะ
 - อยู่หลัง reverse proxy ให้ตั้ง `TRUST_PROXY=1`
 - ตั้ง `JWT_SECRET` ใหม่, เปิด HTTPS (PWA/Service Worker และ `crypto.randomUUID` ต้องการ secure context)
 - ตั้ง `CORS_ORIGINS` ให้ตรงโดเมนจริง และสำรองฐานข้อมูลอัตโนมัติ
 - ตั้งค่าสูตรให้ครบทุกเมนูที่ต้องการติดตามต้นทุน — เมนูที่ไม่มีสูตรจะไม่หักสต็อก
 - ตั้ง `PAYMENT_PROVIDER` และ `PAYMENT_WEBHOOK_SECRET` (ถ้าใช้ gateway); ถ้าไม่ตั้ง พนักงานต้องตรวจยอดเงินเข้าแล้วกดยืนยันเอง
 - QR โต๊ะต้องชี้ไปที่ที่อยู่เว็บที่ลูกค้าเข้าถึงได้จากอินเทอร์เน็ต (ตั้งที่ จัดการ → QR สั่งอาหาร) และอยู่หลัง HTTPS
-- ตัวจำกัดอัตราของหน้าลูกค้า/ล็อกอินเก็บในหน่วยความจำ — รองรับ API instance เดียว ถ้าขยายหลาย instance ต้องย้ายไป Redis
+- ตัวจำกัดอัตราของหน้าลูกค้า/ล็อกอินเก็บในหน่วยความจำ — รองรับ API instance เดียว ถ้าขยายหลาย instance ต้องย้ายไป Redis (real-time รองรับหลาย instance แล้ว)
 
 ## แผนถัดไป
 
 | Phase | เนื้อหา |
 |---|---|
 | 3 — QR & Integrations ✅ | ลูกค้าสแกน QR สั่งที่โต๊ะ, ระบบคิว/จอครัว, ยืนยัน PromptPay อัตโนมัติ (Delivery ยังพักไว้; adapter ของ gateway จริงยังต้องทำ) |
+| A — หลายร้าน + real-time + Railway ✅ | แยกข้อมูลร้านด้วย RLS, ครัว/บิล/คิว real-time, deploy บริการเดียว |
+| B — แอป desktop + เครื่องพิมพ์ | Mac/Windows (ห่อหน้าเว็บเดิม), พิมพ์ใบครัว/ใบเสร็จ ESC/POS ผ่าน USB/LAN |
+| C — ออฟไลน์เต็มร้านผ่าน LAN | แอป desktop เป็นเซิร์ฟเวอร์กลางในร้าน (ฐานข้อมูลในเครื่อง + sync ขึ้น cloud) |
+| D — จองโต๊ะ + สั่งออนไลน์ + Stripe | หน้าจองโต๊ะ/สั่งล่วงหน้า, จ่ายบัตรออนไลน์ |
 | 4 — Multi-branch & CRM | สำนักงานใหญ่, ราคา/เมนูกลาง, สมาชิก แต้ม ระดับ กระเป๋าเงินเติมเงิน |
 | 5 — Magic AI | Dashboard ขั้นสูง, คาดการณ์ยอดขาย/วัตถุดิบ, สรุปสาเหตุจากข้อมูลจริง |

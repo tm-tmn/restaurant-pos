@@ -3,7 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
-import { Branch, User } from '../entities';
+import { runAsSystem, runAsTenant } from '../common/tenant-context';
+import { Branch, Tenant, User } from '../entities';
 import { JwtPayload } from './auth.guard';
 import { LoginThrottle } from './login-throttle';
 
@@ -20,37 +21,43 @@ export class AuthService {
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(Branch) private readonly branches: Repository<Branch>,
+    @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     private readonly jwt: JwtService,
   ) {}
 
-  async login(username: string, password: string, ip: string) {
-    const userKey = [`u:${username.toLowerCase()}`];
+  async login(tenantSlug: string, username: string, password: string, ip: string) {
+    const slug = tenantSlug.trim().toLowerCase();
+    const userKey = [`u:${slug}/${username.toLowerCase()}`];
     const ipKey = [`ip:${ip}`];
     const wait = Math.max(this.byUser.retryAfter(userKey), this.byIp.retryAfter(ipKey));
     if (wait > 0) {
       throw new HttpException(`ใส่รหัสผิดหลายครั้ง กรุณารอ ${Math.ceil(wait / 60)} นาทีแล้วลองใหม่`, HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const user = await this.users
-      .createQueryBuilder('u')
-      .addSelect('u.passwordHash')
-      .where('u.username = :username', { username })
-      .getOne();
+    // หาร้านจากรหัสร้าน (ยังไม่รู้ว่าเป็นร้านไหน จึงต้องค้นในโหมด system — อ่านตาราง tenants อย่างเดียว)
+    const tenant = await runAsSystem(() => this.tenants.findOneBy({ slug }));
 
-    // ข้อความเดียวกันทุกกรณี ไม่บอกว่าชื่อผู้ใช้หรือรหัสผ่านผิด
-    const bad = new UnauthorizedException('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+    // ข้อความเดียวกันทุกกรณี ไม่บอกว่ารหัสร้าน ชื่อผู้ใช้ หรือรหัสผ่านผิด
+    const bad = new UnauthorizedException('รหัสร้าน ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง');
+    const user =
+      tenant?.status === 'active'
+        ? await runAsTenant(tenant.id, () =>
+            this.users.createQueryBuilder('u').addSelect('u.passwordHash').where('u.username = :username', { username }).getOne(),
+          )
+        : null;
     const ok = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
-    if (!user || !user.active || !ok) {
+    if (!tenant || !user || !user.active || !ok) {
       this.byUser.fail(userKey);
       this.byIp.fail(ipKey);
       throw bad;
     }
     this.byUser.success(userKey);
 
-    const branch = await this.branches.findOneByOrFail({ id: user.branchId });
-    const token = await this.jwt.signAsync({ sub: user.id, tv: user.tokenVersion } satisfies JwtPayload);
+    const branch = await runAsTenant(tenant.id, () => this.branches.findOneByOrFail({ id: user.branchId }));
+    const token = await this.jwt.signAsync({ sub: user.id, tv: user.tokenVersion, tid: tenant.id } satisfies JwtPayload);
     return {
       token,
+      tenant: { slug: tenant.slug, name: tenant.name },
       user: { id: user.id, name: user.displayName, role: user.role },
       branch: {
         id: branch.id, code: branch.code, name: branch.name, promptpayId: branch.promptpayId,

@@ -4,9 +4,11 @@ import { Button, Input, Label } from '../components/ui';
 import { api, NetworkError } from '../lib/api';
 import { flushQueue } from '../lib/offline';
 import { useAuth } from '../store/auth';
-import type { Branch, SessionUser } from '../types';
+import type { Branch, SessionUser, TenantInfo } from '../types';
 
 export function LoginPage() {
+  const lastTenant = useAuth((s) => s.lastTenant);
+  const [tenant, setTenant] = useState(lastTenant);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +21,9 @@ export function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ token: string; user: SessionUser; branch: Branch }>('/auth/login', { body: { username, password } });
+      const r = await api<{ token: string; user: SessionUser; branch: Branch; tenant: TenantInfo }>('/auth/login', {
+        body: { tenant: tenant.trim().toLowerCase(), username, password },
+      });
       setSession(r);
       void flushQueue(); // ส่งบิลที่ค้างจากก่อนหน้า
       nav('/', { replace: true });
@@ -38,15 +42,27 @@ export function LoginPage() {
         <p className="mb-6 text-center text-sm text-stone-500">เข้าสู่ระบบเพื่อเริ่มขาย</p>
         <div className="space-y-4">
           <div>
+            <Label>รหัสร้าน</Label>
+            <Input
+              autoFocus={!lastTenant}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="เช่น somtam-pa"
+              value={tenant}
+              onChange={(e) => setTenant(e.target.value)}
+            />
+          </div>
+          <div>
             <Label>ชื่อผู้ใช้</Label>
-            <Input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <Input autoFocus={!!lastTenant} autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} />
           </div>
           <div>
             <Label>รหัสผ่าน</Label>
             <Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
           {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-          <Button type="submit" size="lg" className="w-full" disabled={busy || !username || !password}>
+          <Button type="submit" size="lg" className="w-full" disabled={busy || !tenant.trim() || !username || !password}>
             {busy ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
           </Button>
         </div>

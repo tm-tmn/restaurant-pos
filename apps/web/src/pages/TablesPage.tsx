@@ -5,6 +5,7 @@ import { Button, Card, Empty, cn } from '../components/ui';
 import { usePending } from '../hooks/usePending';
 import { useToast } from '../store/toast';
 import { api } from '../lib/api';
+import { useLiveInterval } from '../lib/live';
 import { baht } from '../lib/money';
 import type { TableInfo } from '../types';
 
@@ -24,7 +25,8 @@ export function TablesPage() {
     }
   }
 
-  const tables = useQuery({ queryKey: ['tables'], queryFn: () => api<TableInfo[]>('/tables'), refetchInterval: 15_000 });
+  const tablesEvery = useLiveInterval(15_000, 60_000);
+  const tables = useQuery({ queryKey: ['tables'], queryFn: () => api<TableInfo[]>('/tables'), refetchInterval: tablesEvery });
 
   if (tables.isLoading) return <Empty>กำลังโหลด…</Empty>;
   if (tables.isError) return <Empty>โหลดข้อมูลโต๊ะไม่ได้ — ระบบโต๊ะต้องออนไลน์ ({(tables.error as Error).message})</Empty>;

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Badge, Button, cn, Empty } from '../components/ui';
 import { useBeep } from '../hooks/useBeep';
 import { api } from '../lib/api';
+import { useLiveInterval } from '../lib/live';
 import { useToast } from '../store/toast';
 import type { KitchenStatus, KitchenTicket } from '../types';
 
@@ -28,7 +29,8 @@ export function KitchenPage() {
   const beep = useBeep();
   const [sound, setSound] = useState(true);
   const [now, setNow] = useState(Date.now());
-  const board = useQuery({ queryKey: ['kitchen'], queryFn: () => api<KitchenTicket[]>('/kitchen'), refetchInterval: 4_000 });
+  const kitchenEvery = useLiveInterval(4_000, 30_000);
+  const board = useQuery({ queryKey: ['kitchen'], queryFn: () => api<KitchenTicket[]>('/kitchen'), refetchInterval: kitchenEvery });
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 20_000);

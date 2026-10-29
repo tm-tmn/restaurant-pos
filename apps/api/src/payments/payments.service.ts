@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { InjectDataSource } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
+import { runAsSystem, runAsTenant } from '../common/tenant-context';
 import { calcTotals } from '../common/money';
 import { Branch, OrderItem, PaymentIntent } from '../entities';
 import { OrdersService } from '../orders/orders.service';
@@ -137,6 +138,15 @@ export class PaymentsService {
    * ปลอดภัยต่อการยิงซ้ำ (idempotent ด้วย txnId)
    */
   async confirm(input: ConfirmInput): Promise<ConfirmResult> {
+    // webhook ไม่มีผู้ใช้ล็อกอิน: หาร้านจาก intent ก่อน (system อ่านอย่างเดียว) แล้วทำงานที่เหลือในนามร้านนั้น
+    const owner: { tenantId: string }[] = await runAsSystem(() =>
+      this.ds.query(`SELECT "tenantId" FROM payment_intents WHERE id = $1`, [input.intentId]),
+    );
+    if (!owner[0]) throw new NotFoundException('ไม่พบรายการชำระเงิน');
+    return runAsTenant(owner[0].tenantId, () => this.confirmInTenant(input));
+  }
+
+  private async confirmInTenant(input: ConfirmInput): Promise<ConfirmResult> {
     const pre = await this.ds.getRepository(PaymentIntent).findOneBy({ id: input.intentId });
     if (!pre) throw new NotFoundException('ไม่พบรายการชำระเงิน');
     try {

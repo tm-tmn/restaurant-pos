@@ -18,7 +18,7 @@ import { ShiftPage } from './pages/ShiftPage';
 import { SyncPage } from './pages/SyncPage';
 import { TablesPage } from './pages/TablesPage';
 import { isManager, useAuth } from './store/auth';
-import type { Branch, SessionUser } from './types';
+import type { Branch, SessionUser, TenantInfo } from './types';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuth((s) => s.token);
@@ -35,8 +35,9 @@ export function App() {
     // ดึงข้อมูลผู้ใช้/สาขาล่าสุดเมื่อเปิดแอป (สิทธิ์หรือ PromptPay อาจถูกแก้จากเครื่องอื่น)
     // ถ้าโทเค็นถูกเพิกถอน api() จะ logout ให้เอง; ถ้าออฟไลน์ก็ใช้ข้อมูลเดิมต่อ
     if (!useAuth.getState().token) return;
-    api<{ user: SessionUser; branch: Branch }>('/auth/me')
+    api<{ user: SessionUser; branch: Branch; tenant: TenantInfo }>('/auth/me')
       .then((r) => {
+        useAuth.getState().setTenant(r.tenant);
         useAuth.getState().setUser(r.user);
         useAuth.getState().setBranch(r.branch);
       })
@@ -49,8 +50,8 @@ export function App() {
         {/* หน้าสาธารณะสำหรับลูกค้า (ไม่ต้องล็อกอิน) */}
         <Route path="/t/:token" element={<CustomerOrderPage />} />
         <Route path="/q/ticket/:token" element={<QueueTicketPage />} />
-        <Route path="/q/:branchCode" element={<QueueJoinPage />} />
-        <Route path="/board/:branchCode" element={<QueueBoardPage />} />
+        <Route path="/q/:shop/:branchCode" element={<QueueJoinPage />} />
+        <Route path="/board/:shop/:branchCode" element={<QueueBoardPage />} />
         <Route
           element={
             <RequireAuth>

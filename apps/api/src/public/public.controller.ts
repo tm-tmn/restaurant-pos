@@ -14,46 +14,46 @@ export class PublicController {
 
   @Get('t/:token')
   table(@Param('token') token: string, @Req() req: Request) {
-    return this.pub.tablePage(token, ipOf(req));
+    return this.pub.forTable(token, ipOf(req), () => this.pub.tablePage(token, ipOf(req)));
   }
 
   @Post('t/:token/order')
   @HttpCode(200)
   order(@Param('token') token: string, @Req() req: Request, @Body() dto: CustomerOrderDto) {
-    return this.pub.submit(token, ipOf(req), dto);
+    return this.pub.forTable(token, ipOf(req), () => this.pub.submit(token, ipOf(req), dto));
   }
 
   @Post('t/:token/pay')
   @HttpCode(200)
   pay(@Param('token') token: string, @Req() req: Request) {
-    return this.pub.startPayment(token, ipOf(req));
+    return this.pub.forTable(token, ipOf(req), () => this.pub.startPayment(token, ipOf(req)));
   }
 
   @Get('t/:token/pay/:intentId')
   payStatus(@Param('token') token: string, @Param('intentId') intentId: string, @Req() req: Request) {
-    return this.pub.paymentStatus(token, ipOf(req), intentId);
+    return this.pub.forTable(token, ipOf(req), () => this.pub.paymentStatus(token, ipOf(req), intentId));
   }
 
-  // ---- คิว (ต้องอยู่ก่อน :branchCode) ----
+  // ---- คิว (ต้องอยู่ก่อน :shop/:branchCode) ----
   @Get('queue/ticket/:token')
   ticket(@Param('token') token: string, @Req() req: Request) {
-    return this.pub.queueStatus(token, ipOf(req));
+    return this.pub.forQueueTicket(token, ipOf(req), () => this.pub.queueStatus(token, ipOf(req)));
   }
 
   @Post('queue/ticket/:token/cancel')
   @HttpCode(200)
   cancelTicket(@Param('token') token: string, @Req() req: Request) {
-    return this.pub.cancelQueue(token, ipOf(req));
+    return this.pub.forQueueTicket(token, ipOf(req), () => this.pub.cancelQueue(token, ipOf(req)));
   }
 
-  @Get('queue/:branchCode/board')
-  board(@Param('branchCode') code: string, @Req() req: Request) {
-    return this.pub.queueBoard(code, ipOf(req));
+  @Get('queue/:shop/:branchCode/board')
+  board(@Param('shop') shop: string, @Param('branchCode') code: string, @Req() req: Request) {
+    return this.pub.forShop(shop, ipOf(req), () => this.pub.queueBoard(code, ipOf(req)));
   }
 
-  @Post('queue/:branchCode')
+  @Post('queue/:shop/:branchCode')
   @HttpCode(200)
-  join(@Param('branchCode') code: string, @Req() req: Request, @Body() dto: NewTicketDto) {
-    return this.pub.joinQueue(code, ipOf(req), dto);
+  join(@Param('shop') shop: string, @Param('branchCode') code: string, @Req() req: Request, @Body() dto: NewTicketDto) {
+    return this.pub.forShop(shop, ipOf(req), () => this.pub.joinQueue(code, ipOf(req), dto));
   }
 }

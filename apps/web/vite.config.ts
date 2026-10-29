@@ -29,14 +29,17 @@ export default defineConfig({
       workbox: {
         // แคชไฟล์แอปทั้งหมดเพื่อเปิดแอปได้แม้ไม่มีอินเทอร์เน็ต; ไม่แคชคำตอบของ /api (ข้อมูลเมนู/ออเดอร์จัดการเองในแอป)
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallbackDenylist: [/^\/api\//, /^\/socket\.io\//],
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
       },
     }),
   ],
   server: {
     port: 5173,
-    proxy: { '/api': { target: process.env.VITE_API_PROXY ?? 'http://localhost:3000', changeOrigin: true } },
+    proxy: {
+      '/api': { target: process.env.VITE_API_PROXY ?? 'http://localhost:3000', changeOrigin: true },
+      '/socket.io': { target: process.env.VITE_API_PROXY ?? 'http://localhost:3000', changeOrigin: true, ws: true },
+    },
   },
   test: { environment: 'node', include: ['src/**/*.test.ts'] },
 });

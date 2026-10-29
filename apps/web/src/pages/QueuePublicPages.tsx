@@ -23,14 +23,14 @@ const write = (k: string, v: string | null) => {
 
 /** ลูกค้าเข้าคิวเองผ่าน QR หน้าร้าน */
 export function QueueJoinPage() {
-  const { branchCode = '' } = useParams();
+  const { shop = '', branchCode = '' } = useParams();
   const nav = useNavigate();
   const [size, setSize] = useState('2');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const existing = read(TICKET_KEY(branchCode));
+  const existing = read(TICKET_KEY(`${shop}/${branchCode}`));
 
   useEffect(() => {
     if (existing) nav(`/q/ticket/${existing}`, { replace: true });
@@ -41,11 +41,11 @@ export function QueueJoinPage() {
     setBusy(true);
     setErr(null);
     try {
-      const r = await api<{ token: string }>(`/public/queue/${branchCode}`, {
+      const r = await api<{ token: string }>(`/public/queue/${shop}/${branchCode}`, {
         auth: false,
         body: { partySize: Number(size) || 1, ...(name.trim() ? { name: name.trim() } : {}), ...(phone.trim() ? { phone: phone.trim() } : {}) },
       });
-      write(TICKET_KEY(branchCode), r.token);
+      write(TICKET_KEY(`${shop}/${branchCode}`), r.token);
       nav(`/q/ticket/${r.token}`, { replace: true });
     } catch (e) {
       setErr((e as Error).message);
@@ -162,10 +162,10 @@ export function QueueTicketPage() {
 
 /** จอแสดงคิวหน้าร้าน (ทีวี/แท็บเล็ต) */
 export function QueueBoardPage() {
-  const { branchCode = '' } = useParams();
+  const { shop = '', branchCode = '' } = useParams();
   const q = useQuery({
-    queryKey: ['board', branchCode],
-    queryFn: () => api<{ branch: string; calling: string[]; waiting: number }>(`/public/queue/${branchCode}/board`, { auth: false }),
+    queryKey: ['board', shop, branchCode],
+    queryFn: () => api<{ branch: string; calling: string[]; waiting: number }>(`/public/queue/${shop}/${branchCode}/board`, { auth: false }),
     refetchInterval: 4_000,
   });
   const d = q.data;

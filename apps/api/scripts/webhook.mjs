@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
 
 const API = process.env.API_URL ?? 'http://localhost:3000/api';
+const SHOP = process.env.SHOP ?? 'main';
 const SECRET = process.env.PAYMENT_WEBHOOK_SECRET;
 assert.ok(SECRET, 'ต้องตั้ง PAYMENT_WEBHOOK_SECRET');
 let token = '';
@@ -34,7 +35,7 @@ async function hook(payload, { ts = Date.now(), sig, raw } = {}, expect) {
   return text ? JSON.parse(text) : null;
 }
 
-token = (await call('POST', '/auth/login', { username: 'owner', password: process.env.OWNER_PASSWORD ?? 'ChangeMe!2026' }, 201)).token;
+token = (await call('POST', '/auth/login', { tenant: SHOP, username: 'owner', password: process.env.OWNER_PASSWORD ?? 'ChangeMe!2026' }, 201)).token;
 if (!(await call('GET', '/shifts/current'))) await call('POST', '/shifts/open', { openingCashSatang: 100000 });
 await call('PATCH', '/branches/me', { promptpayId: '0812345678' }, 200);
 const cfg = await call('GET', '/payments/config');

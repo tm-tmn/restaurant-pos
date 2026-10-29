@@ -14,14 +14,17 @@ config();
 export function dataSourceOptions(): DataSourceOptions {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('ไม่พบ DATABASE_URL');
+  if (process.env.DB_SYNC === 'true') {
+    throw new Error('DB_SYNC=true เลิกใช้แล้ว (ระบบหลายร้านต้องสร้างตารางด้วย migration) — ตั้ง DB_SYNC=false หรือลบบรรทัดนี้ออกจาก .env');
+  }
   return {
     type: 'postgres',
     url,
     entities: ALL_ENTITIES,
     migrations: [join(__dirname, 'migrations', '*.{js,ts}')],
-    // DB_SYNC=true ใช้เฉพาะตอนพัฒนา — ปกติให้ใช้ migration
-    synchronize: process.env.DB_SYNC === 'true',
-    migrationsRun: process.env.DB_SYNC !== 'true',
+    // สร้าง/อัปเดตตารางด้วย migration เสมอ — synchronize สร้าง Row-Level Security, role และ trigger ที่ใช้แยกร้านไม่ได้
+    synchronize: false,
+    migrationsRun: true,
   };
 }
 
