@@ -1,6 +1,12 @@
 export type Role = 'owner' | 'manager' | 'cashier';
 export type PaymentMethod = 'cash' | 'promptpay' | 'card';
 
+/** ร้าน (หนึ่งระบบมีได้หลายร้าน) — slug คือรหัสร้านที่ใช้ล็อกอินและในลิงก์สาธารณะ */
+export interface TenantInfo {
+  slug: string;
+  name: string;
+}
+
 export interface Branch {
   id: string;
   code: string;

@@ -6,6 +6,7 @@
  */
 import { randomUUID } from 'node:crypto';
 const API = process.env.API_URL ?? 'http://localhost:3000/api';
+const SHOP = process.env.SHOP ?? 'main';
 const findings = [];
 let token = '';
 async function call(method, path, body, raw) {
@@ -22,7 +23,7 @@ async function call(method, path, body, raw) {
 }
 const expect = (label, cond, extra = '') => { if (!cond) findings.push(`BUG ${label} ${extra}`); };
 
-const login = await call('POST', '/auth/login', { username: 'owner', password: 'ChangeMe!2026' });
+const login = await call('POST', '/auth/login', { tenant: SHOP, username: 'owner', password: 'ChangeMe!2026' });
 token = login.j.token;
 const owner = token;
 const branchId = login.j.branch.id;
@@ -32,7 +33,7 @@ const sfx = Date.now() % 1e7;
 
 // ---------- malformed bodies ----------
 await call('POST', '/auth/login', undefined, '{bad json');
-await call('POST', '/auth/login', { username: 123, password: [] });
+await call('POST', '/auth/login', { tenant: SHOP, username: 123, password: [] });
 await call('POST', '/orders', undefined, 'null');
 await call('POST', '/orders', { clientId: 'x', type: 'dine_in', items: 'a' });
 await call('POST', '/orders', { clientId: randomUUID(), type: 'takeaway', items: [{ productId: randomUUID(), qty: 1 }] });
@@ -132,7 +133,7 @@ const uname = 'probe' + sfx;
 await call('POST', '/users', { username: uname, password: 'password123', displayName: 'P', role: 'cashier' });
 const dupU = await call('POST', '/users', { username: uname, password: 'password123', displayName: 'P', role: 'cashier' });
 expect('dup username 400', dupU.s === 400);
-const cl = await call('POST', '/auth/login', { username: uname, password: 'password123' });
+const cl = await call('POST', '/auth/login', { tenant: SHOP, username: uname, password: 'password123' });
 const cashierToken = cl.j.token;
 const users = (await call('GET', '/users')).j;
 const cu = users.find((u) => u.username === uname);
@@ -149,7 +150,7 @@ token = owner;
 // brute force
 let locked = false;
 for (let i = 0; i < 12; i++) {
-  const r = await call('POST', '/auth/login', { username: uname, password: 'wrong' + i });
+  const r = await call('POST', '/auth/login', { tenant: SHOP, username: uname, password: 'wrong' + i });
   if (r.s === 429) locked = true;
 }
 expect('login brute force throttled', locked);
@@ -173,7 +174,7 @@ const tr = await call('POST', '/inventory/transfer', { toBranchId: randomUUID(),
 expect('transfer to unknown branch 404/400', tr.s === 404 || tr.s === 400, `got ${tr.s}`);
 
 // cashier access matrix
-token = (await call('POST', '/auth/login', { username: uname, password: 'newpassword1' })).j?.token ?? cashierToken;
+token = (await call('POST', '/auth/login', { tenant: SHOP, username: uname, password: 'newpassword1' })).j?.token ?? cashierToken;
 for (const [m, path, body] of [
   ['POST', '/catalog/products', { name: 'x', priceSatang: 1 }],
   ['POST', '/tables', { name: 'x' }],

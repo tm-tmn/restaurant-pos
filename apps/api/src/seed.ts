@@ -1,46 +1,41 @@
 /**
- * ข้อมูลตั้งต้นสำหรับพัฒนา/ทดลอง: สาขา, ผู้ใช้, โต๊ะ, เมนูตัวอย่าง
+ * ข้อมูลตั้งต้นสำหรับพัฒนา/ทดลอง: ร้าน, สาขา, ผู้ใช้, โต๊ะ, เมนูตัวอย่าง
+ * ร้านใหม่สำหรับลูกค้าจริงให้ใช้ npm run tenant:create (ดู src/tenants/create-tenant.ts)
  * รัน: npm run seed   (ต้องมี DATABASE_URL ใน apps/api/.env)
  * รันซ้ำได้ — ถ้ามีข้อมูลแล้วจะไม่สร้างซ้ำ
  */
 import 'reflect-metadata';
-import * as bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
 import { dataSourceOptions } from './data-source';
-import { BaseUnit, Branch, Category, DiningTable, Ingredient, Product, RecipeItem, User } from './entities';
+import { runAsTenant } from './common/tenant-context';
+import { installTenantGuard } from './common/tenant-db';
+import { BaseUnit, Category, Ingredient, Product, RecipeItem } from './entities';
+import { provisionTenant } from './tenants/provision';
 
 config();
 
 async function main() {
-  // ใช้การตั้งค่าเดียวกับแอป: รัน migration ก่อน (หรือ synchronize เมื่อ DB_SYNC=true ตอนพัฒนา)
+  // ใช้การตั้งค่าเดียวกับแอป: รัน migration ที่ค้างก่อน
   const ds = await new DataSource(dataSourceOptions()).initialize();
+  // ทำงานเหมือนแอปจริง: ทุกคำสั่งอยู่ภายใต้ Row-Level Security ของร้านที่กำลัง seed
+  installTenantGuard(ds);
 
-  let branch = await ds.getRepository(Branch).findOneBy({ code: 'MAIN' });
-  if (!branch) {
-    branch = await ds.getRepository(Branch).save({ code: 'MAIN', name: 'สาขาหลัก', promptpayId: null });
-    console.log('สร้างสาขา MAIN แล้ว — อย่าลืมตั้ง promptpayId ของร้านเพื่อใช้ QR PromptPay');
+  // ร้านตัวอย่าง — ระบบที่อัปเกรดจากรุ่นก่อนมีร้าน "main" (ข้อมูลเดิม) อยู่แล้ว
+  const slug = process.env.SEED_TENANT_SLUG ?? 'main';
+  const password = process.env.SEED_OWNER_PASSWORD ?? 'ChangeMe!2026';
+  const { tenant, created } = await provisionTenant(ds, { slug, name: process.env.SEED_TENANT_NAME ?? 'ร้านตัวอย่าง', ownerPassword: password });
+  if (created) {
+    console.log(`สร้างร้าน "${tenant.slug}" แล้ว — ผู้ใช้ owner (รหัสผ่านตั้งต้น: ${process.env.SEED_OWNER_PASSWORD ? 'จาก SEED_OWNER_PASSWORD' : password})`);
+    console.log('อย่าลืมเปลี่ยนรหัสผ่าน และตั้ง promptpayId ของสาขาเพื่อใช้ QR PromptPay');
   }
+  await runAsTenant(tenant.id, () => seedMenu(ds));
+  await ds.destroy();
+  console.log('seed เสร็จแล้ว');
+}
 
-  const users = ds.getRepository(User);
-  if ((await users.count()) === 0) {
-    // รหัสผ่านตั้งต้นต้องเปลี่ยนทันทีหลังเข้าระบบครั้งแรก
-    const password = process.env.SEED_OWNER_PASSWORD ?? 'ChangeMe!2026';
-    await users.save({
-      branchId: branch.id,
-      username: 'owner',
-      displayName: 'เจ้าของร้าน',
-      role: 'owner',
-      passwordHash: await bcrypt.hash(password, 10),
-    });
-    console.log(`สร้างผู้ใช้ owner แล้ว (รหัสผ่านตั้งต้น: ${process.env.SEED_OWNER_PASSWORD ? 'จาก SEED_OWNER_PASSWORD' : password})`);
-  }
-
-  const tables = ds.getRepository(DiningTable);
-  if ((await tables.count({ where: { branchId: branch.id } })) === 0) {
-    await tables.save(Array.from({ length: 8 }, (_, i) => tables.create({ branchId: branch.id, name: `T${i + 1}`, seats: 4 })));
-  }
-
+/** เมนู วัตถุดิบ และสูตรตัวอย่าง (เฉพาะร้านที่ยังไม่มีหมวดหมู่) */
+async function seedMenu(ds: DataSource) {
   const cats = ds.getRepository(Category);
   if ((await cats.count()) === 0) {
     const menu: Record<string, [string, number, string?][]> = {
@@ -95,9 +90,6 @@ async function main() {
     }
     console.log('สร้างวัตถุดิบและสูตรตัวอย่างแล้ว');
   }
-
-  await ds.destroy();
-  console.log('seed เสร็จแล้ว');
 }
 
 main().catch((e) => {

@@ -1,6 +1,6 @@
 import { Controller, Get, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthController } from './auth/auth.controller';
@@ -9,6 +9,7 @@ import { AuthService } from './auth/auth.service';
 import { Public } from './auth/auth.types';
 import { BranchesController } from './branches/branches.controller';
 import { CatalogController } from './catalog/catalog.controller';
+import { TenantDbSetup, TenantInterceptor } from './common/tenant.interceptor';
 import { dataSourceOptions } from './data-source';
 import { ALL_ENTITIES } from './entities';
 import { InventoryController } from './inventory/inventory.controller';
@@ -22,6 +23,7 @@ import { QueueController } from './queue/queue.controller';
 import { QueueService } from './queue/queue.service';
 import { OrdersController, SyncController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
+import { RealtimeGateway, RealtimeListener } from './realtime/realtime.gateway';
 import { ReportsController } from './reports/reports.controller';
 import { ShiftsController } from './shifts/shifts.controller';
 import { ShiftsService } from './shifts/shifts.service';
@@ -42,7 +44,7 @@ class HealthController {
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      // อ่าน DATABASE_URL / DB_SYNC จาก env — ถ้าไม่ได้เปิด DB_SYNC จะรัน migration ที่ค้างอัตโนมัติตอนเริ่ม
+      // อ่าน DATABASE_URL จาก env และรัน migration ที่ค้างอัตโนมัติตอนเริ่ม
       useFactory: () => dataSourceOptions(),
     }),
     TypeOrmModule.forFeature(ALL_ENTITIES),
@@ -75,6 +77,13 @@ class HealthController {
     PaymentsController,
     PublicController,
   ],
-  providers: [AuthService, ShiftsService, InventoryService, OrdersService, PaymentsService, QueueService, PublicService, { provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [
+    AuthService, ShiftsService, InventoryService, OrdersService, PaymentsService, QueueService, PublicService,
+    TenantDbSetup,
+    RealtimeGateway,
+    RealtimeListener,
+    { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_INTERCEPTOR, useClass: TenantInterceptor },
+  ],
 })
 export class AppModule {}

@@ -3,6 +3,7 @@ import { Role } from '../entities';
 
 export interface AuthUser {
   id: string;
+  tenantId: string;
   branchId: string;
   role: Role;
   name: string;

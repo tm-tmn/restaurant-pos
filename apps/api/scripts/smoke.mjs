@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 
 const API = process.env.API_URL ?? 'http://localhost:3000/api';
+const SHOP = process.env.SHOP ?? 'main';
 let token = '';
 
 async function call(method, path, body, expectStatus) {
@@ -24,8 +25,8 @@ async function call(method, path, body, expectStatus) {
 const ok = (m) => console.log('✓', m);
 
 // --- auth ---
-await call('POST', '/auth/login', { username: 'owner', password: 'wrong' }, 401);
-const login = await call('POST', '/auth/login', { username: 'owner', password: process.env.OWNER_PASSWORD ?? 'ChangeMe!2026' });
+await call('POST', '/auth/login', { tenant: SHOP, username: 'owner', password: 'wrong' }, 401);
+const login = await call('POST', '/auth/login', { tenant: SHOP, username: 'owner', password: process.env.OWNER_PASSWORD ?? 'ChangeMe!2026' });
 token = login.token;
 ok('login');
 await call('GET', '/catalog/menu', undefined, 200);
@@ -38,7 +39,7 @@ ok('endpoint ต้อง login');
 const uname = `cashier${Date.now() % 100000}`;
 await call('POST', '/users', { username: uname, password: 'cashier-pass-1', displayName: 'แคชเชียร์ทดสอบ', role: 'cashier' });
 const ownerToken = token;
-token = (await call('POST', '/auth/login', { username: uname, password: 'cashier-pass-1' })).token;
+token = (await call('POST', '/auth/login', { tenant: SHOP, username: uname, password: 'cashier-pass-1' })).token;
 await call('GET', '/reports/daily', undefined, 403);
 await call('GET', '/users', undefined, 403);
 ok('cashier เข้ารายงาน/ผู้ใช้ไม่ได้');

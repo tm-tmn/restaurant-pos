@@ -1,6 +1,7 @@
 import { BarChart3, ChefHat, Clock, CloudOff, LayoutGrid, ListOrdered, LogOut, Package, RefreshCw, Settings, ShoppingCart, type LucideIcon } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useOnline } from '../hooks/useOnline';
+import { useLive } from '../lib/live';
 import { usePending } from '../hooks/usePending';
 import { flushQueue, useSync } from '../lib/offline';
 import { isManager, useAuth } from '../store/auth';
@@ -27,6 +28,7 @@ const NAV: NavItem[] = [
 export function Layout() {
   const { user, branch, logout } = useAuth();
   const online = useOnline();
+  const live = useLive((s) => s.connected);
   const { pending: queued, failed, syncing } = useSync();
   const nav = useNavigate();
   const pending = usePending();
@@ -100,8 +102,9 @@ export function Layout() {
                 'flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium',
                 online ? 'bg-green-100 text-green-800' : 'bg-stone-800 text-white',
               )}
+              title={online ? (live ? 'อัปเดตทันที (real-time)' : 'กำลังต่อ real-time — ระหว่างนี้อัปเดตเป็นระยะ') : undefined}
             >
-              {online ? <span className="h-2 w-2 rounded-full bg-green-600" /> : <CloudOff size={14} />}
+              {online ? <span className={cn('h-2 w-2 rounded-full', live ? 'bg-green-600' : 'bg-amber-500')} /> : <CloudOff size={14} />}
               {online ? 'ออนไลน์' : 'ออฟไลน์'}
             </span>
             <button

@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 
 const API = process.env.API_URL ?? 'http://localhost:3000/api';
+const SHOP = process.env.SHOP ?? 'main';
 let token = '';
 let ip = '10.0.0.1';
 const rnd = () => `10.${(Math.random() * 250 + 1) | 0}.${(Math.random() * 250 + 1) | 0}.${(Math.random() * 250 + 1) | 0}`;
@@ -34,11 +35,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sum = (levels) => levels.reduce((s, l) => s + l.qty, 0);
 
 // ---------- setup ----------
-const owner = (await call('POST', '/auth/login', { username: 'owner', password: process.env.OWNER_PASSWORD ?? 'ChangeMe!2026' })).token;
+const owner = (await call('POST', '/auth/login', { tenant: SHOP, username: 'owner', password: process.env.OWNER_PASSWORD ?? 'ChangeMe!2026' })).token;
 token = owner;
 const uname = `p3cash${Date.now() % 100000}`;
 await call('POST', '/users', { username: uname, password: 'cashier-pass-1', displayName: 'แคชเชียร์ P3', role: 'cashier' });
-const cashier = (await call('POST', '/auth/login', { username: uname, password: 'cashier-pass-1' })).token;
+const cashier = (await call('POST', '/auth/login', { tenant: SHOP, username: uname, password: 'cashier-pass-1' })).token;
 if (!(await call('GET', '/shifts/current'))) await call('POST', '/shifts/open', { openingCashSatang: 100000 });
 const br = await call('PATCH', '/branches/me', { promptpayId: '0812345678', qrOrdering: true, qrRequireApproval: true }, 200);
 assert.equal(br.qrOrdering, true);
@@ -318,10 +319,10 @@ assert.match(q1.code, /^Q\d{3}$/);
 await call('POST', '/queue', { partySize: 0 }, 400);
 await call('POST', '/queue', { partySize: 31 }, 400);
 await call('POST', '/queue', { partySize: 2, phone: 'abc' }, 400);
-const c1 = await pub('POST', '/public/queue/MAIN', { partySize: 4, phone: '0899999999' }, 200);
-await pub('POST', '/public/queue/NOPE', { partySize: 4 }, 404);
-await pub('POST', '/public/queue/MAIN', { partySize: 99 }, 400);
-const c2 = await pub('POST', '/public/queue/MAIN', { partySize: 3 }, 200);
+const c1 = await pub('POST', `/public/queue/${SHOP}/MAIN`, { partySize: 4, phone: '0899999999' }, 200);
+await pub('POST', `/public/queue/${SHOP}/NOPE`, { partySize: 4 }, 404);
+await pub('POST', `/public/queue/${SHOP}/MAIN`, { partySize: 99 }, 400);
+const c2 = await pub('POST', `/public/queue/${SHOP}/MAIN`, { partySize: 3 }, 200);
 assert.match(c1.token, /^[0-9a-f]{32}$/);
 let st = await pub('GET', `/public/queue/ticket/${c2.token}`, undefined, 200);
 assert.equal(st.status, 'waiting');
@@ -332,7 +333,7 @@ const tk1 = live.find((t) => t.code === c1.code);
 await call('POST', `/queue/${tk1.id}/call`, undefined, 200);
 await call('POST', `/queue/${tk1.id}/call`, undefined, 200);
 assert.equal((await call('GET', '/queue')).find((t) => t.id === tk1.id).callCount, 2);
-const board = await pub('GET', '/public/queue/MAIN/board', undefined, 200);
+const board = await pub('GET', `/public/queue/${SHOP}/MAIN/board`, undefined, 200);
 assert.ok(board.calling.includes(c1.code));
 assert.deepEqual(Object.keys(board).sort(), ['branch', 'calling', 'waiting']);
 await call('POST', `/queue/${tk1.id}/seat`, { tableId: T.id }, 200);
@@ -358,7 +359,7 @@ ip = rnd();
 let q429 = 0;
 for (let i = 0; i < 8; i++) {
   const t = token; token = '';
-  const r = await fetch(`${API}/public/queue/MAIN`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ partySize: 2 }) });
+  const r = await fetch(`${API}/public/queue/${SHOP}/MAIN`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ partySize: 2 }) });
   token = t;
   if (r.status === 429) q429++;
 }

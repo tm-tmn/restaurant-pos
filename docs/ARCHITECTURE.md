@@ -1,4 +1,4 @@
-# สถาปัตยกรรม (Phase 1–3)
+# สถาปัตยกรรม (Phase 1–3 + A)
 
 ```
 ┌──────────── Store POS (PWA) ────────────┐        ┌──────── Central API (NestJS) ────────┐
@@ -10,6 +10,33 @@
                                                                   │
                                                           PostgreSQL 16
 ```
+
+## หลายร้าน (multi-tenant)
+
+- ฐานข้อมูลเดียว ทุกตารางมี `"tenantId"` ค่าเริ่มต้น `app_tenant_id()` = `NULLIF(current_setting('app.tenant_id', true), '')::uuid`
+- ทุกตารางเปิด RLS: policy `tenant_isolation` ให้อ่าน/เขียนเฉพาะ `"tenantId" = app_tenant_id()`; ตาราง `tenants` อ่านได้เฉพาะแถวตัวเอง และ `pos_app` เขียนไม่ได้
+- ทุกครั้งที่แอปยืม connection จาก pool (`common/tenant-db.ts`) จะตั้ง `role = pos_app` และ `app.tenant_id` ตามบริบทของงาน
+  (`AsyncLocalStorage` ใน `common/tenant-context.ts`) และจำไว้บน connection เพื่อไม่ต้องตั้งซ้ำ
+  - คำขอที่ล็อกอิน: JWT มี `tid` → AuthGuard ตรวจผู้ใช้ในนามร้านนั้น → `TenantInterceptor` รัน handler ในบริบทร้านนั้น
+  - ไม่มีบริบท = มองไม่เห็นอะไร เขียนไม่ได้ (fail-closed)
+  - โหมด system (กลับเป็นเจ้าของตาราง) ใช้เฉพาะจุดที่ต้องหาว่าเป็นร้านไหนก่อน: รหัสร้านตอนล็อกอิน, โทเค็น QR โต๊ะ/บัตรคิว, webhook — คืนแค่ `tenantId` แล้วทำงานต่อในบริบทร้าน
+- foreign key ของ PostgreSQL ไม่สน RLS → trigger `enforce_same_tenant` ตรวจว่าคอลัมน์อ้างอิง (branchId, productId, tableId, …) เป็นของร้านเดียวกัน
+- ค่า unique ที่เป็นของร้าน (รหัสสาขา, ชื่อผู้ใช้, SKU, บาร์โค้ด, ชื่อวัตถุดิบ) เป็น unique ต่อร้าน; โทเค็นสุ่ม (QR, คิว) และเลขธุรกรรมยัง unique ทั้งระบบ
+- สร้างร้าน: `src/tenants/provision.ts` (ใช้ทั้ง CLI `tenant:create` และ seed) — แอปปกติสร้างร้านไม่ได้
+- ทดสอบ: `scripts/tenants.mjs` ตรวจทั้งผ่าน API และตรงที่ฐานข้อมูล (role pos_app)
+
+## Real-time
+
+```
+แก้ข้อมูล (API ตัวใดก็ได้) ──commit──► trigger notify_pos_change → NOTIFY pos_events {"b": branchId, "t": "orders,kitchen"}
+                                                           │ (API ทุกตัว LISTEN)
+                                         RealtimeListener รวมสัญญาณ 100ms → RealtimeGateway → ห้อง b:<branchId> (Socket.IO)
+                                                           │
+                              หน้าเว็บ (lib/live.ts) → invalidate React Query ตามหัวข้อ → โหลดผ่าน REST ตามปกติ
+```
+- ต่อ WebSocket ด้วย JWT เดียวกับ API; ส่งแค่ชื่อหัวข้อ ไม่ส่งข้อมูล — สิทธิ์และ RLS ยังตรวจที่ REST ทุกครั้ง
+- ต่อไม่ได้/หลุด → หน้าจอกลับไปโหลดเป็นระยะ (ครัว 4 วิ, รอยืนยัน 5 วิ, คิว 5 วิ); ต่อได้ → โหลดสำรองทุก 30–60 วิ
+- หลาย API instance ได้โดยไม่ต้องมี Redis (ทุกตัว LISTEN จาก PostgreSQL)
 
 ## หลักการสำคัญ
 
@@ -106,5 +133,5 @@
 
 ## จุดต่อยอดที่เตรียมไว้
 
-- `branches` มีอยู่แล้ว → Phase 4 เพิ่ม `organizations` และราคาต่อสาขา
-- Redis ใน docker-compose ยังไม่ถูกใช้ใน Phase 3 (ตัวจำกัดอัตราอยู่ในหน่วยความจำ, การแจ้งเตือนใช้ polling) — จะจำเป็นเมื่อรันหลาย API instance (ตัวจำกัดอัตรา/ล็อกอิน) หรือเพิ่มงานเบื้องหลัง เช่น ตรวจสอบยอดย้อนหลังกับ gateway
+- `tenants` + `branches` มีแล้ว → Phase 4 เพิ่มราคา/เมนูกลางต่อร้าน และราคาต่อสาขา
+- Redis ใน docker-compose ยังไม่ถูกใช้ (ตัวจำกัดอัตราอยู่ในหน่วยความจำ; real-time ใช้ LISTEN/NOTIFY ของ PostgreSQL) — จะจำเป็นเมื่อรันหลาย API instance (ตัวจำกัดอัตรา/ล็อกอิน) หรือเพิ่มงานเบื้องหลัง เช่น ตรวจสอบยอดย้อนหลังกับ gateway

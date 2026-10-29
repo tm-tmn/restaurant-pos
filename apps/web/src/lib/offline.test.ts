@@ -46,7 +46,9 @@ async function freshModule() {
   // ล้าง IndexedDB ระหว่างเทสต์
   const { IDBFactory } = await import('fake-indexeddb');
   globalThis.indexedDB = new IDBFactory();
-  return import('./offline');
+  const { useAuth } = await import('../store/auth');
+  useAuth.setState({ token: 't', tenant: { slug: 'shop-a', name: 'ร้าน A' } });
+  return Object.assign(await import('./offline'), { useAuth });
 }
 
 beforeEach(() => {
@@ -130,5 +132,36 @@ describe('offline queue', () => {
     await m.flushQueue();
     expect(calls).toEqual([50, 50, 20]);
     expect(m.useSync.getState().pending).toBe(0);
+  });
+
+  it('บิลของร้านอื่น (เครื่องเดียวกันใช้หลายร้าน) ไม่ถูกส่งเข้าร้านที่ล็อกอินอยู่ — ส่งเมื่อกลับมาล็อกอินร้านเดิม', async () => {
+    const m = await freshModule();
+    serverDown = true;
+    const a = order();
+    await m.enqueueOrder(a); // ขายตอนล็อกอินร้าน A แต่เน็ตล่ม
+    serverDown = false;
+    m.useAuth.setState({ tenant: { slug: 'shop-b', name: 'ร้าน B' } });
+    const r1 = await m.flushQueue();
+    expect(r1.size).toBe(0);
+    expect(calls).toEqual([]);
+    await m.useSync.getState().refreshCounts();
+    expect(m.useSync.getState().pending).toBe(0); // ร้าน B ไม่เห็นบิลค้างของร้าน A
+    expect(await m.listFailed()).toEqual([]);
+    m.useAuth.setState({ tenant: { slug: 'shop-a', name: 'ร้าน A' } });
+    await m.useSync.getState().refreshCounts();
+    expect(m.useSync.getState().pending).toBe(1);
+    const r2 = await m.flushQueue();
+    expect(r2.get(a.clientId)?.status).toBe('created');
+    expect(m.useSync.getState().pending).toBe(0);
+  });
+
+  it('ไม่ได้ล็อกอิน → ไม่ส่ง (เก็บไว้ในคิว)', async () => {
+    const m = await freshModule();
+    await m.enqueueOrder(order());
+    calls = [];
+    m.useAuth.setState({ token: null });
+    await m.flushQueue();
+    expect(calls).toEqual([]);
+    expect(m.useSync.getState().pending).toBe(1);
   });
 });

@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, Empty, Input, Label } from '../components/ui';
 import { api } from '../lib/api';
+import { useLiveInterval } from '../lib/live';
 import { useAuth } from '../store/auth';
 import { useToast } from '../store/toast';
 import type { QueueTicket, TableInfo } from '../types';
@@ -13,7 +14,9 @@ export function QueuePage() {
   const qc = useQueryClient();
   const toast = useToast((s) => s.show);
   const branch = useAuth((s) => s.branch);
-  const list = useQuery({ queryKey: ['queue'], queryFn: () => api<QueueTicket[]>('/queue'), refetchInterval: 5_000 });
+  const tenant = useAuth((s) => s.tenant);
+  const queueEvery = useLiveInterval(5_000, 30_000);
+  const list = useQuery({ queryKey: ['queue'], queryFn: () => api<QueueTicket[]>('/queue'), refetchInterval: queueEvery });
   const tables = useQuery({ queryKey: ['tables'], queryFn: () => api<TableInfo[]>('/tables') });
   const [size, setSize] = useState('2');
   const [name, setName] = useState('');
@@ -21,7 +24,7 @@ export function QueuePage() {
   const [busy, setBusy] = useState(false);
   const [seatFor, setSeatFor] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
-  const joinUrl = branch ? `${location.origin}/q/${branch.code}` : '';
+  const joinUrl = branch && tenant ? `${location.origin}/q/${tenant.slug}/${branch.code}` : '';
 
   useEffect(() => {
     if (joinUrl) QRCode.toDataURL(joinUrl, { margin: 1, width: 220 }).then(setQr, () => setQr(null));
@@ -144,7 +147,7 @@ export function QueuePage() {
         <h2 className="font-semibold">ให้ลูกค้าเข้าคิวเอง</h2>
         {qr ? <img src={qr} alt="QR เข้าคิว" className="mx-auto h-44 w-44" /> : <div className="mx-auto h-44 w-44 animate-pulse rounded bg-stone-100" />}
         <p className="break-all text-xs text-stone-500">{joinUrl}</p>
-        <Button variant="outline" className="w-full" onClick={() => window.open(`/board/${branch?.code}`, '_blank')}>
+        <Button variant="outline" className="w-full" onClick={() => window.open(`/board/${tenant?.slug}/${branch?.code}`, '_blank')}>
           <Monitor size={16} /> เปิดจอแสดงคิว
         </Button>
         <p className="text-xs text-stone-500">เปิดจอแสดงคิวบนทีวี/แท็บเล็ตหน้าร้าน ลูกค้าจะเห็นเลขที่กำลังถูกเรียก</p>

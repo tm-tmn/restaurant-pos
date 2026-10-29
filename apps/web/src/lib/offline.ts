@@ -6,10 +6,13 @@
  * - เซิร์ฟเวอร์ปฏิเสธ (rejected) → ย้ายไปกอง "ต้องตรวจสอบ" ไม่ลบทิ้ง
  * - เชื่อมต่อไม่ได้ → อยู่ในคิว ส่งใหม่อัตโนมัติ
  * เซิร์ฟเวอร์ใช้ clientId กันบิลซ้ำ จึงส่งซ้ำได้อย่างปลอดภัย
+ * - บิลผูกกับรหัสร้านที่ล็อกอินตอนขาย: ส่งเฉพาะเมื่อเครื่องล็อกอินร้านเดียวกัน (กันบิลร้านหนึ่งไปเข้าอีกร้าน
+ *   เมื่อเครื่องเดียวกันถูกใช้หลายร้าน) — บิลรุ่นก่อนมีระบบหลายร้านไม่มีรหัสร้าน ถือเป็นของร้านที่ล็อกอินอยู่
  */
 import { createStore, del, entries, get, set } from 'idb-keyval';
 import { create } from 'zustand';
 import type { Menu, SyncOrderPayload } from '../types';
+import { useAuth } from '../store/auth';
 import { api, ApiError } from './api';
 
 const queueStore = createStore('pos-offline', 'queue');
@@ -18,6 +21,8 @@ const cacheStore = createStore('pos-cache', 'kv');
 
 export interface QueuedOrder {
   payload: SyncOrderPayload;
+  /** รหัสร้าน (slug) ตอนขาย */
+  tenant?: string;
   queuedAt: string;
   attempts: number;
   lastError?: string;
@@ -36,19 +41,23 @@ interface SyncState {
   refreshCounts: () => Promise<void>;
 }
 
+/** บิลนี้เป็นของร้านที่ล็อกอินอยู่ไหม (บิลรุ่นก่อนมีระบบหลายร้านไม่มีรหัสร้าน → นับเป็นของร้านปัจจุบัน) */
+const mine = (q: QueuedOrder) => !q.tenant || q.tenant === useAuth.getState().tenant?.slug;
+
 export const useSync = create<SyncState>((set) => ({
   pending: 0,
   failed: 0,
   syncing: false,
   lastSyncAt: null,
   refreshCounts: async () => {
-    const [q, f] = await Promise.all([entries(queueStore), entries(failedStore)]);
-    set({ pending: q.length, failed: f.length });
+    const [q, f] = await Promise.all([entries<string, QueuedOrder>(queueStore), entries<string, FailedOrder>(failedStore)]);
+    set({ pending: q.filter(([, v]) => mine(v)).length, failed: f.filter(([, v]) => mine(v)).length });
   },
 }));
 
 export async function enqueueOrder(payload: SyncOrderPayload) {
-  await set(payload.clientId, { payload, queuedAt: new Date().toISOString(), attempts: 0 } satisfies QueuedOrder, queueStore);
+  const tenant = useAuth.getState().tenant?.slug;
+  await set(payload.clientId, { payload, tenant, queuedAt: new Date().toISOString(), attempts: 0 } satisfies QueuedOrder, queueStore);
   await useSync.getState().refreshCounts();
 }
 
@@ -122,7 +131,8 @@ async function sendBatch(batch: QueuedOrder[], out: Map<string, SyncResult>): Pr
 
 async function doFlush(): Promise<Map<string, SyncResult>> {
   const out = new Map<string, SyncResult>();
-  const all = (await entries<string, QueuedOrder>(queueStore)).map(([, v]) => v);
+  if (!useAuth.getState().token) return out;
+  const all = (await entries<string, QueuedOrder>(queueStore)).map(([, v]) => v).filter(mine);
   if (all.length === 0) return out;
   useSync.setState({ syncing: true });
   try {
@@ -139,12 +149,12 @@ async function doFlush(): Promise<Map<string, SyncResult>> {
 }
 
 export async function listFailed(): Promise<FailedOrder[]> {
-  return (await entries<string, FailedOrder>(failedStore)).map(([, v]) => v).sort((a, b) => b.rejectedAt.localeCompare(a.rejectedAt));
+  return (await entries<string, FailedOrder>(failedStore)).map(([, v]) => v).filter(mine).sort((a, b) => b.rejectedAt.localeCompare(a.rejectedAt));
 }
 export async function retryFailed(clientId: string) {
   const f = await get<FailedOrder>(clientId, failedStore);
   if (!f) return;
-  await set(clientId, { payload: f.payload, queuedAt: f.queuedAt, attempts: f.attempts, lastError: f.lastError } satisfies QueuedOrder, queueStore);
+  await set(clientId, { payload: f.payload, tenant: f.tenant, queuedAt: f.queuedAt, attempts: f.attempts, lastError: f.lastError } satisfies QueuedOrder, queueStore);
   await del(clientId, failedStore);
   await flushQueue();
 }
@@ -154,8 +164,10 @@ export async function discardFailed(clientId: string) {
 }
 
 // ---- แคชเมนูสำหรับใช้ตอนออฟไลน์ ----
-export const cacheMenu = (m: Menu) => set('menu', m, cacheStore);
-export const cachedMenu = () => get<Menu>('menu', cacheStore);
+// แยกตามร้าน: เครื่องที่เคยล็อกอินร้านอื่นต้องไม่เห็นเมนูร้านนั้นตอนออฟไลน์
+const menuKey = () => `menu:${useAuth.getState().tenant?.slug ?? '-'}`;
+export const cacheMenu = (m: Menu) => set(menuKey(), m, cacheStore);
+export const cachedMenu = () => get<Menu>(menuKey(), cacheStore);
 
 /** เริ่มตัวซิงค์อัตโนมัติ: ตอนกลับมาออนไลน์ และทุก 30 วินาที */
 export function startAutoSync() {
@@ -165,5 +177,15 @@ export function startAutoSync() {
   const t = setInterval(() => {
     if (navigator.onLine) void flushQueue();
   }, 30_000);
-  return () => clearInterval(t);
+  // เปลี่ยนร้าน/ล็อกอินใหม่ → นับใหม่เฉพาะบิลของร้านนั้น และส่งบิลที่ค้างของร้านนั้น
+  const unsub = useAuth.subscribe((s, prev) => {
+    if (s.tenant?.slug !== prev.tenant?.slug || s.token !== prev.token) {
+      void useSync.getState().refreshCounts();
+      if (s.token) void flushQueue();
+    }
+  });
+  return () => {
+    clearInterval(t);
+    unsub();
+  };
 }

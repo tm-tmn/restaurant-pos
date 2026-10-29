@@ -21,12 +21,36 @@ export type PaymentMethod = 'cash' | 'promptpay' | 'card';
 
 export const newQrToken = () => randomBytes(16).toString('hex');
 
+/**
+ * ทุกตาราง (ยกเว้น tenants) มีคอลัมน์ tenantId = ร้านเจ้าของแถว
+ * ค่าเริ่มต้นมาจาก app.tenant_id ของ connection (แอปตั้งให้อัตโนมัติ) — โค้ดจึงไม่ต้องใส่เองตอน insert
+ * และ Row-Level Security ใน PostgreSQL บังคับให้อ่าน/เขียนได้เฉพาะแถวของร้านตัวเอง
+ */
+// app_tenant_id() = NULLIF(current_setting('app.tenant_id', true), '')::uuid (สร้างใน migration MultiTenant)
+export const TENANT_DEFAULT = 'app_tenant_id()';
+const TenantColumn = () => Column({ type: 'uuid', default: () => TENANT_DEFAULT });
+
+export type TenantStatus = 'active' | 'suspended';
+
+/** ร้าน (ลูกค้าของระบบ) — หนึ่งร้านมีได้หลายสาขา */
+@Entity('tenants')
+export class Tenant {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  /** รหัสร้านที่พนักงานพิมพ์ตอนล็อกอิน และอยู่ในลิงก์สาธารณะ เช่น /q/<slug>/MAIN */
+  @Column({ unique: true }) slug: string;
+  @Column() name: string;
+  @Column({ type: 'varchar', length: 12, default: 'active' }) status: TenantStatus;
+  @CreateDateColumn() createdAt: Date;
+}
+
 /** เงินทุกช่องเก็บเป็นจำนวนเต็ม "สตางค์" */
 
 @Entity('branches')
+@Unique(['tenantId', 'code'])
 export class Branch {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
-  @Column({ unique: true }) code: string;
+  @Column() code: string;
   @Column() name: string;
   /** เบอร์โทร/เลขบัตรประชาชน/เลขผู้เสียภาษี ที่ผูกกับ PromptPay ของร้าน */
   @Column({ type: 'varchar', nullable: true }) promptpayId: string | null;
@@ -38,11 +62,13 @@ export class Branch {
 }
 
 @Entity('users')
+@Unique(['tenantId', 'username'])
 export class User {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() branchId: string;
   @ManyToOne(() => Branch) @JoinColumn({ name: 'branchId' }) branch: Branch;
-  @Column({ unique: true }) username: string;
+  @Column() username: string;
   @Column({ select: false }) passwordHash: string;
   @Column() displayName: string;
   @Column({ type: 'varchar', length: 20 }) role: Role;
@@ -53,7 +79,9 @@ export class User {
 }
 
 @Entity('categories')
+@Index(['tenantId'])
 export class Category {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() name: string;
   @Column({ type: 'int', default: 0 }) sortOrder: number;
@@ -62,18 +90,20 @@ export class Category {
 }
 
 @Entity('products')
+@Index(['tenantId', 'sku'], { unique: true, where: '"sku" IS NOT NULL' })
+@Index(['tenantId', 'barcode'], { unique: true, where: '"barcode" IS NOT NULL' })
+@Index(['tenantId'])
 export class Product {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ type: 'uuid', nullable: true }) categoryId: string | null;
   @ManyToOne(() => Category, (c) => c.products, { nullable: true })
   @JoinColumn({ name: 'categoryId' })
   category: Category | null;
   @Column() name: string;
-  @Index({ unique: true, where: '"sku" IS NOT NULL' })
   @Column({ type: 'varchar', nullable: true })
   sku: string | null;
   /** บาร์โค้ดสำหรับ Quick Scan */
-  @Index({ unique: true, where: '"barcode" IS NOT NULL' })
   @Column({ type: 'varchar', nullable: true })
   barcode: string | null;
   @Column({ type: 'int' }) priceSatang: number;
@@ -85,6 +115,7 @@ export class Product {
 @Entity('dining_tables')
 @Unique(['branchId', 'name'])
 export class DiningTable {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() branchId: string;
   @Column() name: string;
@@ -101,6 +132,7 @@ export class DiningTable {
 // หนึ่งสาขาเปิดกะได้ทีละกะ (กันกดเปิดพร้อมกันจากหลายเครื่อง)
 @Index('uq_open_shift_per_branch', ['branchId'], { unique: true, where: '"closedAt" IS NULL' })
 export class Shift {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() branchId: string;
   @Column() openedBy: string;
@@ -120,6 +152,7 @@ export class Shift {
 // หนึ่งโต๊ะมีบิลเปิดได้ทีละบิลเดียว (กัน race เมื่อสองเครื่องเปิดโต๊ะพร้อมกัน)
 @Index('uq_open_order_per_table', ['tableId'], { unique: true, where: `"status" = 'open' AND "tableId" IS NOT NULL` })
 export class Order {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   /** UUID ที่เครื่อง POS สร้างเอง ใช้ป้องกันออเดอร์ซ้ำเมื่อซิงค์ซ้ำ (idempotency) */
   @Column('uuid') clientId: string;
@@ -151,6 +184,7 @@ export type ItemStatus = 'active' | 'pending' | 'void';
 // ดึงรายการที่ครัวยังต้องทำ (จอครัว) โดยไม่ต้องกวาดทั้งตาราง
 @Index('idx_items_kitchen_open', ['kitchenStatus'], { where: `"status" = 'active' AND "kitchenStatus" <> 'served'` })
 export class OrderItem {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() orderId: string;
   @ManyToOne(() => Order, (o) => o.items, { onDelete: 'CASCADE' })
@@ -173,6 +207,7 @@ export class OrderItem {
 
 @Entity('payments')
 export class Payment {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() orderId: string;
   @ManyToOne(() => Order, (o) => o.payments, { onDelete: 'CASCADE' })
@@ -188,6 +223,7 @@ export class Payment {
 
 @Entity('audit_logs')
 export class AuditLog {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() branchId: string;
   @Column({ type: 'uuid', nullable: true }) userId: string | null;
@@ -201,6 +237,7 @@ export class AuditLog {
 /** ตัวนับเลขที่บิลต่อสาขาต่อวัน (atomic ด้วย INSERT ... ON CONFLICT) */
 @Entity('daily_counters')
 export class DailyCounter {
+  @TenantColumn() tenantId: string;
   @PrimaryColumn() branchId: string;
   @PrimaryColumn({ type: 'date' }) day: string;
   @Column({ type: 'int', default: 0 }) n: number;
@@ -213,11 +250,13 @@ export type BaseUnit = 'g' | 'ml' | 'pcs';
 export type MovementType = 'receive' | 'issue' | 'waste' | 'transfer_out' | 'transfer_in' | 'sale' | 'adjust';
 
 @Entity('ingredients')
+@Unique(['tenantId', 'name'])
+@Index(['tenantId', 'sku'], { unique: true, where: '"sku" IS NOT NULL' })
 export class Ingredient {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
-  @Column({ unique: true }) name: string;
+  @Column() name: string;
   @Column({ type: 'varchar', length: 8 }) unit: BaseUnit;
-  @Index({ unique: true, where: '"sku" IS NOT NULL' })
   @Column({ type: 'varchar', nullable: true })
   sku: string | null;
   /** แจ้งเตือนเมื่อคงเหลือต่ำกว่าค่านี้ (หน่วยฐาน) */
@@ -230,6 +269,7 @@ export class Ingredient {
 @Entity('recipe_items')
 @Unique(['productId', 'ingredientId'])
 export class RecipeItem {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Index() @Column('uuid') productId: string;
   @Column('uuid') ingredientId: string;
@@ -241,6 +281,7 @@ export class RecipeItem {
 /** คงเหลือต่อสาขา: ปริมาณ + มูลค่า (ต้นทุนเฉลี่ย = value/qty) */
 @Entity('stock_levels')
 export class StockLevel {
+  @TenantColumn() tenantId: string;
   @PrimaryColumn('uuid') branchId: string;
   @PrimaryColumn('uuid') ingredientId: string;
   @ManyToOne(() => Ingredient) @JoinColumn({ name: 'ingredientId' }) ingredient: Ingredient;
@@ -256,6 +297,7 @@ export class StockLevel {
 @Index(['branchId', 'ingredientId', 'createdAt'])
 @Index(['refType', 'refId'])
 export class StockMovement {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column('uuid') branchId: string;
   @Column('uuid') ingredientId: string;
@@ -277,6 +319,7 @@ export class StockMovement {
 
 @Entity('stock_counts')
 export class StockCount {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column('uuid') branchId: string;
   @Column('uuid') userId: string;
@@ -296,6 +339,7 @@ export type QueueStatus = 'waiting' | 'called' | 'seated' | 'cancelled' | 'no_sh
 @Unique(['branchId', 'day', 'number'])
 @Index(['branchId', 'day', 'status'])
 export class QueueTicket {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() branchId: string;
   @Column({ type: 'date' }) day: string;
@@ -316,6 +360,7 @@ export class QueueTicket {
 
 @Entity('queue_counters')
 export class QueueCounter {
+  @TenantColumn() tenantId: string;
   @PrimaryColumn() branchId: string;
   @PrimaryColumn({ type: 'date' }) day: string;
   @Column({ type: 'int', default: 0 }) n: number;
@@ -328,6 +373,7 @@ export type IntentStatus = 'pending' | 'paid' | 'expired' | 'cancelled' | 'revie
 @Entity('payment_intents')
 @Index(['orderId', 'status'])
 export class PaymentIntent {
+  @TenantColumn() tenantId: string;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column() branchId: string;
   @Column('uuid') orderId: string;
@@ -350,6 +396,7 @@ export class PaymentIntent {
 }
 
 export const ALL_ENTITIES = [
+  Tenant,
   Branch,
   User,
   Category,
